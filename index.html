@@ -1,11 +1,36 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
   <meta charset="UTF-8">
   <title>Gamepad Sender</title>
+  <style>
+    #status {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background-color: gray;
+      display: inline-block;
+      vertical-align: middle;
+      margin-left: 8px;
+    }
+  </style>
 </head>
 <body>
-  <h1>Gamepad連携中...</h1>
+  <h1>Gamepad WebRTC送信</h1>
+
+  <label>
+    WebSocket URL:
+    <input type="text" id="wsUrl" placeholder="wss://yourdomain/ws" size="40">
+    <button id="connectBtn">接続</button>
+  </label>
+  <br><br>
+
+  <label>
+    ゲームパッド:
+    <select id="gamepadSelect"></select>
+    <span id="status"></span>
+  </label>
+
   <script src="main.js"></script>
 </body>
 </html>
