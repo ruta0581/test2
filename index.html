@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebRTC Gamepad Sender</title>
+</head>
+<body>
+  <h1>Gamepad Sender</h1>
+  <button onclick="connect()">Connect</button>
+
+  <script>
+    let pc, dc, ws;
+
+    async function connect() {
+      ws = new WebSocket("ws://192.168.1.125:8080");
+      pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      });
+
+      dc = pc.createDataChannel("gamepad");
+
+      ws.onmessage = async (msg) => {
+        const data = JSON.parse(msg.data);
+        if (data.type === 'answer') {
+          await pc.setRemoteDescription(data);
+        } else if (data.type === 'candidate') {
+          await pc.addIceCandidate(data.candidate);
+        }
+      };
+
+      pc.onicecandidate = event => {
+        if (event.candidate) {
+          ws.send(JSON.stringify({ type: 'candidate', candidate: event.candidate }));
+        }
+      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      ws.onopen = () => ws.send(JSON.stringify(offer));
+
+      setInterval(() => {
+        const gp = navigator.getGamepads()[0];
+        if (gp && dc.readyState === "open") {
+          dc.send(JSON.stringify({
+            buttons: gp.buttons.map(b => b.pressed),
+            axes: gp.axes
+          }));
+        }
+      }, 50);
+    }
+  </script>
+</body>
+</html>
