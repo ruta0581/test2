@@ -1,4 +1,4 @@
-const ws = new WebSocket("wss://rapids-bear-lives-five.trycloudflare.com/ws");
+const ws = new WebSocket("wss://act-borough-anime-ut.trycloudflare.com/ws");
 
 let pc;
 let dataChannel;
