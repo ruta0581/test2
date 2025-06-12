@@ -1,37 +1,47 @@
-<!-- cliant-media.html：シンプルにmediaのみ受信 -->
 <!DOCTYPE html>
-<html lang="ja">
+<html>
 <head>
   <meta charset="utf-8">
-  <title>RemotePad メディア受信</title>
-  <style>
-    body { background: #222; }
-    #remoteVideo { width: 80vw; max-width: 1280px; margin: 40px auto; display: block; background: #000; border-radius: 16px; }
-  </style>
+  <title>WebRTC Client (視聴者)</title>
 </head>
 <body>
-  <video id="remoteVideo" autoplay playsinline controls></video>
-<script>
-let ws = new WebSocket("wss://temporary-signed-fares-fun.trycloudflare.com/ws:8082/ws-media");
-let pc = null;
-ws.onmessage = async ev => {
-  const msg = JSON.parse(ev.data);
-  if (msg.type === "offer") {
-    pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-    pc.ontrack = (e) => {
-      document.getElementById('remoteVideo').srcObject = e.streams[0];
+  <h2>WebRTC Client</h2>
+  <video id="remoteVideo" autoplay playsinline style="width: 320px; border:1px solid #ccc"></video>
+  <br>
+  <button id="connectBtn">接続</button>
+
+  <script>
+    const wsUrl = "wss://temporary-signed-fares-fun.trycloudflare.com/ws";
+    let ws, pc;
+
+    document.getElementById("connectBtn").onclick = () => {
+      ws = new WebSocket(wsUrl);
+
+      ws.onmessage = async (msg) => {
+        let data = JSON.parse(msg.data);
+        if (data.type === "offer") {
+          pc = new RTCPeerConnection();
+
+          // 受信ストリームをvideoに表示
+          pc.ontrack = e => {
+            document.getElementById("remoteVideo").srcObject = e.streams[0];
+          };
+
+          // シグナリング(ICE candidate)
+          pc.onicecandidate = e => {
+            if (e.candidate) ws.send(JSON.stringify({ type: "candidate", candidate: e.candidate }));
+          };
+
+          await pc.setRemoteDescription(data.offer);
+          let answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          ws.send(JSON.stringify({ type: "answer", answer }));
+
+        } else if (data.type === "candidate" && pc && data.candidate) {
+          try { await pc.addIceCandidate(data.candidate); } catch {}
+        }
+      };
     };
-    pc.onicecandidate = e => {
-      if (e.candidate) ws.send(JSON.stringify({ type: "candidate", candidate: e.candidate }));
-    };
-    await pc.setRemoteDescription(msg.offer);
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    ws.send(JSON.stringify({ type: "answer", answer }));
-  } else if (msg.type === "candidate" && pc) {
-    await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-  }
-};
-</script>
+  </script>
 </body>
 </html>
