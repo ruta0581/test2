@@ -1,45 +1,36 @@
+<!-- cliant-media.html：シンプルにmediaのみ受信 -->
 <!DOCTYPE html>
 <html lang="ja">
-<head><meta charset="utf-8"><title>RemotePadクライアント(WebRTC)</title></head>
+<head>
+  <meta charset="utf-8">
+  <title>RemotePad メディア受信</title>
+  <style>
+    body { background: #222; }
+    #remoteVideo { width: 80vw; max-width: 1280px; margin: 40px auto; display: block; background: #000; border-radius: 16px; }
+  </style>
+</head>
 <body>
-  <video id="remoteVideo" autoplay playsinline style="width:480px"></video>
-  <div>
-    <label>名前: <input type="text" id="uname" maxlength="10" value="user"></label>
-    <button id="connectbtn">接続</button>
-  </div>
+  <video id="remoteVideo" autoplay playsinline controls></video>
 <script>
-let ws = null, pc = null, dataChannel = null;
-let clientId = Math.random().toString(36).slice(2,10);
-const remoteVideo = document.getElementById('remoteVideo');
-const uname = document.getElementById('uname');
-const connectbtn = document.getElementById('connectbtn');
-connectbtn.onclick = () => {
-  ws = new WebSocket("ws://localhost:8081");
-  ws.onopen = async () => {
+let ws = new WebSocket("wss://temporary-signed-fares-fun.trycloudflare.com/ws:8082/ws-media");
+let pc = null;
+ws.onmessage = async ev => {
+  const msg = JSON.parse(ev.data);
+  if (msg.type === "offer") {
     pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-    pc.ontrack = e => remoteVideo.srcObject = e.streams[0];
+    pc.ontrack = (e) => {
+      document.getElementById('remoteVideo').srcObject = e.streams[0];
+    };
     pc.onicecandidate = e => {
-      if (e.candidate) ws.send(JSON.stringify({ role: "client-candidate", clientId, candidate: e.candidate }));
+      if (e.candidate) ws.send(JSON.stringify({ type: "candidate", candidate: e.candidate }));
     };
-    pc.ondatachannel = e => {
-      dataChannel = e.channel;
-      dataChannel.onopen = () => {
-        dataChannel.send(JSON.stringify({ type: "hello", name: uname.value }));
-        // Ping, pad送信ここでOK
-      };
-    };
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    ws.send(JSON.stringify({ role: "client-offer", clientId, offer }));
-  };
-  ws.onmessage = async (ev) => {
-    const msg = JSON.parse(ev.data);
-    if (msg.role === "server-answer" && msg.clientId === clientId) {
-      await pc.setRemoteDescription(msg.answer);
-    } else if (msg.role === "server-candidate" && msg.clientId === clientId) {
-      await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-    }
-  };
+    await pc.setRemoteDescription(msg.offer);
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    ws.send(JSON.stringify({ type: "answer", answer }));
+  } else if (msg.type === "candidate" && pc) {
+    await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+  }
 };
 </script>
 </body>
