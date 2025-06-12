@@ -1,36 +1,61 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <title>Gamepad Sender</title>
+  <meta charset="utf-8">
+  <title>ゲームパッドクライアント(WebRTC)</title>
   <style>
-    #status {
-      width: 16px;
-      height: 16px;
-      border-radius: 50%;
-      background-color: gray;
-      display: inline-block;
-      vertical-align: middle;
-      margin-left: 8px;
-    }
+    body { background: #222; color: #eee; font-family: sans-serif;}
+    #wrap { width: 80vw; margin: 3em auto; }
+    #remoteVideo { width:100%; border-radius:12px; background:#000; }
+    #status { margin: 12px 0 24px 0; }
   </style>
 </head>
 <body>
-  <h1>Gamepad WebRTC送信</h1>
+  <div id="wrap">
+    <h2>クライアント（映像＋コントローラ送信）</h2>
+    <div id="status"></div>
+    <video id="remoteVideo" autoplay playsinline controls></video>
+  </div>
+<script>
+let ws = null, pc = null, dataChannel = null;
+let clientId = Math.random().toString(36).slice(2,10);
 
-  <label>
-    WebSocket URL:
-    <input type="text" id="wsUrl" placeholder="wss://yourdomain/ws" size="40">
-    <button id="connectBtn">接続</button>
-  </label>
-  <br><br>
+const statusDiv = document.getElementById('status');
+const remoteVideo = document.getElementById('remoteVideo');
 
-  <label>
-    ゲームパッド:
-    <select id="gamepadSelect"></select>
-    <span id="status"></span>
-  </label>
+function setStatus(msg) { statusDiv.textContent = msg; }
 
-  <script src="main.js"></script>
+function connect() {
+  ws = new WebSocket("ws://localhost:8081");
+  ws.onopen = async () => {
+    setStatus("シグナリング接続");
+    pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    pc.ontrack = e => { remoteVideo.srcObject = e.streams[0]; };
+    pc.onicecandidate = e => {
+      if (e.candidate) ws.send(JSON.stringify({ role: "client-candidate", clientId, candidate: e.candidate }));
+    };
+    pc.ondatachannel = e => {
+      dataChannel = e.channel;
+      dataChannel.onopen = () => setStatus("DataChannelオープン、コントローラ送信可");
+      // ゲームパッド送信などもここで開始OK
+    };
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    ws.send(JSON.stringify({ role: "client-offer", clientId, offer }));
+  };
+
+  ws.onmessage = async (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.role === "server-answer" && msg.clientId === clientId) {
+      await pc.setRemoteDescription(msg.answer);
+      setStatus("P2P接続完了 映像・音声・コントローラ送信可");
+    } else if (msg.role === "server-candidate" && msg.clientId === clientId) {
+      await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+    }
+  };
+}
+connect();
+
+</script>
 </body>
 </html>
