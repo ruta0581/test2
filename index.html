@@ -1,47 +1,48 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8">
-  <title>WebRTC Client (視聴者)</title>
+  <title>WebRTC Client</title>
 </head>
 <body>
-  <h2>WebRTC Client</h2>
-  <video id="remoteVideo" autoplay playsinline style="width: 320px; border:1px solid #ccc"></video>
-  <br>
-  <button id="connectBtn">接続</button>
+  <h2>WSSアドレスを入力</h2>
+  <input id="wssUrl" placeholder="wss://..." style="width: 300px;">
+  <button onclick="connect()">接続</button>
+  <video id="remoteVideo" autoplay playsinline controls></video>
 
   <script>
-    const wsUrl = "wss://temporary-signed-fares-fun.trycloudflare.com/ws";
-    let ws, pc;
+    let pc, ws;
 
-    document.getElementById("connectBtn").onclick = () => {
-      ws = new WebSocket(wsUrl);
+    function connect() {
+      const url = document.getElementById("wssUrl").value;
+      ws = new WebSocket(url);
+      pc = new RTCPeerConnection();
 
-      ws.onmessage = async (msg) => {
-        let data = JSON.parse(msg.data);
-        if (data.type === "offer") {
-          pc = new RTCPeerConnection();
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ role: "client" }));
+      };
 
-          // 受信ストリームをvideoに表示
-          pc.ontrack = e => {
-            document.getElementById("remoteVideo").srcObject = e.streams[0];
-          };
-
-          // シグナリング(ICE candidate)
-          pc.onicecandidate = e => {
-            if (e.candidate) ws.send(JSON.stringify({ type: "candidate", candidate: e.candidate }));
-          };
-
-          await pc.setRemoteDescription(data.offer);
-          let answer = await pc.createAnswer();
+      ws.onmessage = async ({ data }) => {
+        const msg = JSON.parse(data);
+        if (msg.type === "offer") {
+          await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
+          const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           ws.send(JSON.stringify({ type: "answer", answer }));
-
-        } else if (data.type === "candidate" && pc && data.candidate) {
-          try { await pc.addIceCandidate(data.candidate); } catch {}
+        } else if (msg.type === "candidate") {
+          await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
         }
       };
-    };
+
+      pc.ontrack = e => {
+        document.getElementById("remoteVideo").srcObject = e.streams[0];
+      };
+
+      pc.onicecandidate = e => {
+        if (e.candidate) {
+          ws.send(JSON.stringify({ type: "candidate", candidate: e.candidate }));
+        }
+      };
+    }
   </script>
 </body>
 </html>
