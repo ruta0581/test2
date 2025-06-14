@@ -17,21 +17,27 @@
       ws = new WebSocket(url);
       pc = new RTCPeerConnection();
 
-      ws.onopen = () => {
-        ws.send(JSON.stringify({ role: "client" }));
-      };
+ws.onopen = () => {
+  console.log("WebSocket opened");
+  ws.send(JSON.stringify({ role: "client" }));
+};
 
-      ws.onmessage = async ({ data }) => {
-        const msg = JSON.parse(data);
-        if (msg.type === "offer") {
-          await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          ws.send(JSON.stringify({ type: "answer", answer }));
-        } else if (msg.type === "candidate") {
-          await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-        }
-      };
+ws.onmessage = async ({ data }) => {
+  console.log("WebSocket message received:", data);
+  const msg = JSON.parse(data);
+  if (msg.type === "offer") {
+    console.log("Received offer");
+    await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    ws.send(JSON.stringify({ type: "answer", answer }));
+    console.log("Sent answer");
+  } else if (msg.type === "candidate") {
+    console.log("Received candidate");
+    await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+  }
+};
+
 
       pc.ontrack = e => {
         document.getElementById("remoteVideo").srcObject = e.streams[0];
