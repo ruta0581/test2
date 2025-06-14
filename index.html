@@ -1,3 +1,5 @@
+
+
 <!DOCTYPE html>
 <html>
 <head>
@@ -16,7 +18,7 @@
       const url = document.getElementById("wssUrl").value;
       ws = new WebSocket(url);
 
-      // ✅ STUNサーバーを指定してP2P接続の信頼性を上げる
+      //STUNサーバーを指定してP2P接続の信頼性を上げる
       pc = new RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
       });
@@ -41,6 +43,10 @@
           await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
         }
       };
+ws.onclose = () => {
+  alert("ホストとの接続が切断されました。");
+  document.getElementById("remoteVideo").srcObject = null;
+};
 
       pc.ontrack = e => {
         console.log("Track received:", e.streams[0]);
@@ -51,6 +57,7 @@
         if (e.candidate) {
           ws.send(JSON.stringify({ type: "candidate", candidate: e.candidate }));
         }
+		
       };
     }
   </script>
