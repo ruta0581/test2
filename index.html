@@ -10,69 +10,75 @@
   <video id="remoteVideo" autoplay playsinline controls></video>
 
   <script>
-    let pc, ws;
+let pc = null, ws = null;
 
-    function connect() {
-      const url = document.getElementById("wssUrl").value;
-      ws = new WebSocket(url);
+function connect() {
+  const url = document.getElementById("wssUrl").value;
 
-      pc = new RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
-      });
-
-      ws.onopen = () => {
-        console.log("WebSocket opened");
-        ws.send(JSON.stringify({ role: "client" }));
-        // ホストに offer を要求
-        ws.send(JSON.stringify({ type: "request-offer" }));
-      };
-
-let candidateQueue = [];
-
-ws.onmessage = async ({ data }) => {
-  const msg = JSON.parse(data);
-  console.log("WebSocket message received:", msg);
-
-  if (msg.type === "offer") {
-    console.log("Received offer");
-    await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
-
-    // RemoteDescription 設定後にキューを再生
-    for (const candidate of candidateQueue) {
-      await pc.addIceCandidate(new RTCIceCandidate(candidate));
-    }
-    candidateQueue = [];
-
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    ws.send(JSON.stringify({ type: "answer", answer }));
-    console.log("Sent answer");
-  } else if (msg.type === "candidate") {
-    if (!pc.remoteDescription || !pc.remoteDescription.type) {
-      candidateQueue.push(msg.candidate);
-    } else {
-      await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-    }
+  if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+  if (pc) {
+    pc.ontrack = null;
+    pc.onicecandidate = null;
+    pc.close();
+    pc = null;
   }
-};
 
+  ws = new WebSocket(url);
+  pc = new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+  });
 
-      ws.onclose = () => {
-        alert("ホストとの接続が切断されました。");
-        document.getElementById("remoteVideo").srcObject = null;
-      };
+  let candidateQueue = [];
 
-      pc.ontrack = e => {
-        console.log("Track received:", e.streams[0]);
-        document.getElementById("remoteVideo").srcObject = e.streams[0];
-      };
+  ws.onopen = () => {
+    console.log("WebSocket opened");
+    ws.send(JSON.stringify({ role: "client" }));
+    ws.send(JSON.stringify({ type: "request-offer" }));
+  };
 
-      pc.onicecandidate = e => {
-        if (e.candidate) {
-          ws.send(JSON.stringify({ type: "candidate", candidate: e.candidate }));
-        }
-      };
+  ws.onmessage = async ({ data }) => {
+    const msg = JSON.parse(data);
+    console.log("WebSocket message received:", msg);
+
+    if (msg.type === "offer") {
+      console.log("Received offer");
+      await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
+
+      // 再生中に受け取った ICE を先に適用
+      for (const candidate of candidateQueue) {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      }
+      candidateQueue = [];
+
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      ws.send(JSON.stringify({ type: "answer", answer }));
+    } else if (msg.type === "candidate") {
+      if (!pc.remoteDescription || !pc.remoteDescription.type) {
+        candidateQueue.push(msg.candidate);
+      } else {
+        await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+      }
     }
+  };
+
+  ws.onclose = () => {
+    alert("ホストとの接続が切断されました。");
+    document.getElementById("remoteVideo").srcObject = null;
+  };
+
+  pc.ontrack = e => {
+    console.log("Track received:", e.streams[0]);
+    document.getElementById("remoteVideo").srcObject = e.streams[0];
+  };
+
+  pc.onicecandidate = e => {
+    if (e.candidate) {
+      ws.send(JSON.stringify({ type: "candidate", candidate: e.candidate }));
+    }
+  };
+}
+
   </script>
 </body>
 </html>
