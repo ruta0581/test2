@@ -4,47 +4,77 @@
   <title>WebRTC Client</title>
   <meta charset="utf-8">
   <style>
-    body { font-family: sans-serif; margin:0; padding:0; }
-    #mainArea { width:100vw; max-width:100vw; }
+    html, body {
+      width: 100vw; height: 100vh;
+      margin: 0; padding: 0;
+      background: #101015;
+      overflow: hidden;
+    }
+    #mainArea {
+      width:100vw; height:100vh; display:flex; align-items:center; justify-content:center;
+    }
     #remoteVideo {
-      width: 100vw;
-      height: auto;
-      max-width: 100vw;
-      aspect-ratio: 16/9;
+      width: 1280px;
+      height: 720px;
       background: #111;
       display: block;
       margin: 0 auto;
+      object-fit: contain;
+      box-shadow: 0 0 24px #000a;
     }
     #connBox {
-      width: 100vw;
-      margin-bottom: 8px;
+      position: absolute;
+      top: 24px;
+      left: 0; width: 100vw;
+      text-align: center;
       background: #222;
       color: #eee;
       padding: 8px 0;
-      text-align: center;
+      z-index: 10;
     }
-    #connBox input { width:300px; }
+    #connBox input { width:340px; }
     #connBox button { font-size:1em; padding: 0.3em 1.4em; }
+    #errorBox {
+      position: absolute;
+      left: 0; top: 0; width: 100vw; height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      pointer-events: none; /* エラー表示中も入力欄にはアクセス可能 */
+      z-index: 100;
+    }
+    #errorMsg {
+      background: #e11; color: #fff; padding: 2em 3em; font-size: 2em;
+      border-radius: 20px; font-weight: bold; box-shadow: 0 0 32px #000c;
+      pointer-events: auto;
+      display: none;
+    }
   </style>
 </head>
 <body>
 <div id="connBox">
   WSSアドレス:
-  <input id="wssUrl" placeholder="(自動補正)">
+  <input id="wssUrl" placeholder="http(s)://から始まるURLのみ有効">
   <button id="connectBtn" onclick="toggleConnect()">接続</button>
 </div>
+<div id="errorBox">
+  <div id="errorMsg"></div>
+</div>
 <div id="mainArea">
-  <video id="remoteVideo" autoplay playsinline controls></video>
+  <video id="remoteVideo" autoplay playsinline controls
+    controlsList="nodownload noremoteplayback"
+    preload="auto"
+    tabindex="0"
+    style="outline:none;">
+  </video>
 </div>
 <script>
 let ws = null, pc = null, dataChannel = null, dcKeepAliveInterval = null, clientId = null;
 let isConnected = false, reconnectRequested = false;
 
+// アドレスを自動補正する関数
 function fixWssUrl(raw) {
-  // http://... or https://... → wss://.../ws
   let url = raw.trim();
-  if (/^wss:\/\/.+\/ws$/.test(url)) return url; // 既に正しい場合
-  if (/^wss:\/\//.test(url)) { // wss://hogehoge の場合
+  if (/^wss:\/\/.+\/ws$/.test(url)) return url;
+  if (/^wss:\/\//.test(url)) {
     if (!/\/ws$/.test(url)) url += "/ws";
     return url;
   }
@@ -54,6 +84,13 @@ function fixWssUrl(raw) {
   return url;
 }
 
+// エラーメッセージ表示・非表示
+function showError(msg) {
+  const box = document.getElementById("errorMsg");
+  box.textContent = msg;
+  box.style.display = "block";
+  setTimeout(() => { box.style.display = "none"; }, 3500);
+}
 function setConnectButton(state) {
   const btn = document.getElementById("connectBtn");
   if (state === "connect") {
@@ -79,6 +116,14 @@ function toggleConnect() {
 async function connect() {
   setConnectButton("waiting");
   let urlInput = document.getElementById("wssUrl").value.trim();
+
+  // ★ http/httpsが含まれていない場合はエラー
+  if (!/^https?:\/\//.test(urlInput)) {
+    showError("http:// または https:// から始まるURLを入力してください");
+    setConnectButton("connect");
+    return;
+  }
+
   let wssUrl = fixWssUrl(urlInput);
   document.getElementById("wssUrl").value = wssUrl;
 
@@ -107,10 +152,10 @@ async function connect() {
         await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
       }
     }
-    // ★ホストから「reconnect-video」コマンド受信時は再接続
+    // ホストから「reconnect-video」コマンド受信時は再接続
     if (msg.type === "reconnect-video") {
       reconnectRequested = true;
-      disconnect(true); // true: 再接続する
+      disconnect(true);
     }
   };
   ws.onclose = () => {
@@ -125,7 +170,7 @@ async function connect() {
   ws.onerror = (e) => {
     setConnectButton("connect");
     isConnected = false;
-    alert("WebSocket接続エラー");
+    showError("WebSocket接続エラー");
   };
 }
 
@@ -179,8 +224,21 @@ function cleanupPeerConnection() {
   document.getElementById("remoteVideo").srcObject = null;
 }
 
-// ウインドウリサイズで映像が横いっぱいになるのはCSSだけでOK
-
+// --- videoのクリックでは再生/停止が絶対切り替わらないようにする ---
+const video = document.getElementById("remoteVideo");
+video.addEventListener("click", e => {
+  // play/pauseトグルを無効化（stopPropagationでダブルで防止）
+  e.preventDefault();
+  e.stopPropagation();
+  // ただし音量・全画面はvideoのコントロールバーでOK
+});
+video.addEventListener("play", e => {
+  // playイベントは許可（自動再生）
+});
+video.addEventListener("pause", e => {
+  // pauseイベントがユーザーのクリック操作で発生した場合は即座に再開
+  setTimeout(()=>{ if(video.paused) video.play(); },10);
+});
 </script>
 </body>
 </html>
