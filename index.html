@@ -13,6 +13,7 @@
 <script>
 let pc = null, ws = null, clientId = null;
 let dataChannel = null, dcKeepAliveInterval = null;
+let wsPingInterval = null;
 
 function connect() {
   const url = document.getElementById("wssUrl").value;
@@ -29,6 +30,10 @@ function connect() {
     pc.close();
     pc = null;
   }
+  if (wsPingInterval) {
+    clearInterval(wsPingInterval);
+    wsPingInterval = null;
+  }
 
   ws = new WebSocket(url);
   pc = new RTCPeerConnection({
@@ -40,12 +45,22 @@ function connect() {
   ws.onopen = () => {
     console.log("WebSocket opened");
     ws.send(JSON.stringify({ role: "client" }));
-    // サーバーからclientIdが来るまで待つ
+    // pingタイマー開始
+    wsPingInterval = setInterval(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "ping" }));
+      }
+    }, 5000);
   };
 
   ws.onmessage = async ({ data }) => {
     const msg = JSON.parse(data);
     console.log("WebSocket message received:", msg);
+
+    if (msg.type === "pong") {
+      // pong応答は何もしない
+      return;
+    }
 
     if (msg.type === "client-id") {
       clientId = msg.clientId;
@@ -76,6 +91,10 @@ function connect() {
     if (dataChannel && dcKeepAliveInterval) {
       clearInterval(dcKeepAliveInterval);
       dcKeepAliveInterval = null;
+    }
+    if (wsPingInterval) {
+      clearInterval(wsPingInterval);
+      wsPingInterval = null;
     }
   };
 
