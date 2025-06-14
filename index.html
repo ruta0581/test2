@@ -27,22 +27,35 @@
         ws.send(JSON.stringify({ type: "request-offer" }));
       };
 
-      ws.onmessage = async ({ data }) => {
-        const msg = JSON.parse(data);
-        console.log("WebSocket message received:", msg);
+let candidateQueue = [];
 
-        if (msg.type === "offer") {
-          console.log("Received offer");
-          await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          ws.send(JSON.stringify({ type: "answer", answer }));
-          console.log("Sent answer");
-        } else if (msg.type === "candidate") {
-          console.log("Received candidate");
-          await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-        }
-      };
+ws.onmessage = async ({ data }) => {
+  const msg = JSON.parse(data);
+  console.log("WebSocket message received:", msg);
+
+  if (msg.type === "offer") {
+    console.log("Received offer");
+    await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
+
+    // RemoteDescription 設定後にキューを再生
+    for (const candidate of candidateQueue) {
+      await pc.addIceCandidate(new RTCIceCandidate(candidate));
+    }
+    candidateQueue = [];
+
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    ws.send(JSON.stringify({ type: "answer", answer }));
+    console.log("Sent answer");
+  } else if (msg.type === "candidate") {
+    if (!pc.remoteDescription || !pc.remoteDescription.type) {
+      candidateQueue.push(msg.candidate);
+    } else {
+      await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+    }
+  }
+};
+
 
       ws.onclose = () => {
         alert("ホストとの接続が切断されました。");
