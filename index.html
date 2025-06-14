@@ -3,131 +3,184 @@
 <head>
   <title>WebRTC Client</title>
   <meta charset="utf-8">
+  <style>
+    body { font-family: sans-serif; margin:0; padding:0; }
+    #mainArea { width:100vw; max-width:100vw; }
+    #remoteVideo {
+      width: 100vw;
+      height: auto;
+      max-width: 100vw;
+      aspect-ratio: 16/9;
+      background: #111;
+      display: block;
+      margin: 0 auto;
+    }
+    #connBox {
+      width: 100vw;
+      margin-bottom: 8px;
+      background: #222;
+      color: #eee;
+      padding: 8px 0;
+      text-align: center;
+    }
+    #connBox input { width:300px; }
+    #connBox button { font-size:1em; padding: 0.3em 1.4em; }
+  </style>
 </head>
 <body>
-  <h2>WSSアドレスを入力</h2>
-  <input id="wssUrl" placeholder="wss://..." style="width: 300px;">
-  <button onclick="connect()">接続</button>
+<div id="connBox">
+  WSSアドレス:
+  <input id="wssUrl" placeholder="(自動補正)">
+  <button id="connectBtn" onclick="toggleConnect()">接続</button>
+</div>
+<div id="mainArea">
   <video id="remoteVideo" autoplay playsinline controls></video>
-
+</div>
 <script>
-let pc = null, ws = null, clientId = null;
-let dataChannel = null, dcKeepAliveInterval = null;
-let wsPingInterval = null;
+let ws = null, pc = null, dataChannel = null, dcKeepAliveInterval = null, clientId = null;
+let isConnected = false, reconnectRequested = false;
 
-function connect() {
-  const url = document.getElementById("wssUrl").value;
-
-  if (ws && ws.readyState === WebSocket.OPEN) ws.close();
-  if (pc) {
-    if (dataChannel && dcKeepAliveInterval) {
-      clearInterval(dcKeepAliveInterval);
-      dcKeepAliveInterval = null;
-    }
-    pc.ontrack = null;
-    pc.onicecandidate = null;
-    pc.ondatachannel = null;
-    pc.close();
-    pc = null;
+function fixWssUrl(raw) {
+  // http://... or https://... → wss://.../ws
+  let url = raw.trim();
+  if (/^wss:\/\/.+\/ws$/.test(url)) return url; // 既に正しい場合
+  if (/^wss:\/\//.test(url)) { // wss://hogehoge の場合
+    if (!/\/ws$/.test(url)) url += "/ws";
+    return url;
   }
-  if (wsPingInterval) {
-    clearInterval(wsPingInterval);
-    wsPingInterval = null;
+  // http(s):// → wss://
+  url = url.replace(/^https?:\/\//, "wss://");
+  if (!/\/ws$/.test(url)) url += "/ws";
+  return url;
+}
+
+function setConnectButton(state) {
+  const btn = document.getElementById("connectBtn");
+  if (state === "connect") {
+    btn.textContent = "接続";
+    btn.disabled = false;
+  } else if (state === "disconnect") {
+    btn.textContent = "切断";
+    btn.disabled = false;
+  } else if (state === "waiting") {
+    btn.textContent = "待機中…";
+    btn.disabled = true;
   }
+}
 
-  ws = new WebSocket(url);
-  pc = new RTCPeerConnection({
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
-  });
+function toggleConnect() {
+  if (!isConnected) {
+    connect();
+  } else {
+    disconnect();
+  }
+}
 
-  let candidateQueue = [];
+async function connect() {
+  setConnectButton("waiting");
+  let urlInput = document.getElementById("wssUrl").value.trim();
+  let wssUrl = fixWssUrl(urlInput);
+  document.getElementById("wssUrl").value = wssUrl;
 
+  ws = new WebSocket(wssUrl);
   ws.onopen = () => {
-    console.log("WebSocket opened");
     ws.send(JSON.stringify({ role: "client" }));
-    // pingタイマー開始
-    wsPingInterval = setInterval(() => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "ping" }));
-      }
-    }, 5000);
+    setConnectButton("disconnect");
+    isConnected = true;
   };
-
   ws.onmessage = async ({ data }) => {
     const msg = JSON.parse(data);
-    console.log("WebSocket message received:", msg);
-
-    if (msg.type === "pong") {
-      // pong応答は何もしない
-      return;
-    }
-
     if (msg.type === "client-id") {
       clientId = msg.clientId;
       ws.send(JSON.stringify({ type: "request-offer", clientId }));
+      setupPeerConnection();
     }
     if (msg.type === "offer" && msg.clientId === clientId) {
+      if (!pc) setupPeerConnection();
       await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
-      // 先に受け取ったICEを適用
-      for (const candidate of candidateQueue) {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
-      }
-      candidateQueue = [];
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       ws.send(JSON.stringify({ type: "answer", answer, clientId }));
-    } else if (msg.type === "candidate" && msg.clientId === clientId) {
-      if (!pc.remoteDescription || !pc.remoteDescription.type) {
-        candidateQueue.push(msg.candidate);
-      } else {
+    }
+    if (msg.type === "candidate" && msg.clientId === clientId) {
+      if (pc && msg.candidate) {
         await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
       }
     }
+    // ★ホストから「reconnect-video」コマンド受信時は再接続
+    if (msg.type === "reconnect-video") {
+      reconnectRequested = true;
+      disconnect(true); // true: 再接続する
+    }
   };
-
   ws.onclose = () => {
-    alert("ホストとの接続が切断されました。");
-    document.getElementById("remoteVideo").srcObject = null;
-    if (dataChannel && dcKeepAliveInterval) {
-      clearInterval(dcKeepAliveInterval);
-      dcKeepAliveInterval = null;
-    }
-    if (wsPingInterval) {
-      clearInterval(wsPingInterval);
-      wsPingInterval = null;
+    setConnectButton("connect");
+    isConnected = false;
+    cleanupPeerConnection();
+    if (reconnectRequested) {
+      reconnectRequested = false;
+      setTimeout(connect, 300);
     }
   };
+  ws.onerror = (e) => {
+    setConnectButton("connect");
+    isConnected = false;
+    alert("WebSocket接続エラー");
+  };
+}
 
+function disconnect(shouldReconnect=false) {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+  cleanupPeerConnection();
+  setConnectButton("connect");
+  isConnected = false;
+  if (!shouldReconnect) reconnectRequested = false;
+}
+
+// PeerConnection + keepalive
+function setupPeerConnection() {
+  if (pc) cleanupPeerConnection();
+  pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
   pc.ontrack = e => {
     document.getElementById("remoteVideo").srcObject = e.streams[0];
   };
-
   pc.onicecandidate = e => {
-    if (e.candidate && clientId !== null) {
+    if (e.candidate && ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "candidate", candidate: e.candidate, clientId }));
     }
   };
-
-  // DataChannel受信対応
   pc.ondatachannel = (event) => {
     dataChannel = event.channel;
     dataChannel.onopen = () => {
-      // 5秒ごとにkeepalive送信
       dcKeepAliveInterval = setInterval(() => {
-        if (dataChannel.readyState === "open") {
-          dataChannel.send("keepalive");
-        }
+        if (dataChannel.readyState === "open") dataChannel.send("keepalive");
       }, 5000);
     };
     dataChannel.onclose = () => {
       if (dcKeepAliveInterval) clearInterval(dcKeepAliveInterval);
       dcKeepAliveInterval = null;
     };
-    dataChannel.onmessage = (e) => {
-      // "keepalive"メッセージは無視してOK
-    };
+    dataChannel.onmessage = () => {};
   };
 }
+function cleanupPeerConnection() {
+  if (dataChannel && dcKeepAliveInterval) {
+    clearInterval(dcKeepAliveInterval);
+    dcKeepAliveInterval = null;
+  }
+  dataChannel = null;
+  if (pc) {
+    pc.ontrack = null;
+    pc.onicecandidate = null;
+    pc.ondatachannel = null;
+    pc.close();
+    pc = null;
+  }
+  document.getElementById("remoteVideo").srcObject = null;
+}
+
+// ウインドウリサイズで映像が横いっぱいになるのはCSSだけでOK
+
 </script>
 </body>
 </html>
