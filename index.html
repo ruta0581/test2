@@ -13,15 +13,20 @@
     #mainArea {
       width:100vw; height:100vh; display:flex; align-items:center; justify-content:center;
     }
-    #remoteVideo {
-      width: 1280px;
-      height: 720px;
-      background: #111;
-      display: block;
-      margin: 0 auto;
-      object-fit: contain;
-      box-shadow: 0 0 24px #000a;
-    }
+#remoteVideo {
+  width: 100vw;
+  height: 100vh;
+  max-width: 1280px;
+  max-height: 720px;
+  aspect-ratio: 16/9;
+  background: #111;
+  object-fit: contain;
+  display: block;
+  margin: 0 auto;
+  box-shadow: 0 0 24px #000a;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges; /* Firefox等 */
+}
     #connBox {
       position: absolute;
       top: 24px;
