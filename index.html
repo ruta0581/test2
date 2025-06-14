@@ -9,8 +9,9 @@
   <button onclick="connect()">接続</button>
   <video id="remoteVideo" autoplay playsinline controls></video>
 
-  <script>
+<script>
 let pc = null, ws = null;
+let clientId = null;
 
 function connect() {
   const url = document.getElementById("wssUrl").value;
@@ -33,15 +34,21 @@ function connect() {
   ws.onopen = () => {
     console.log("WebSocket opened");
     ws.send(JSON.stringify({ role: "client" }));
-    ws.send(JSON.stringify({ type: "request-offer" }));
+    // サーバーからclientIdが来るまで待つ
   };
 
   ws.onmessage = async ({ data }) => {
     const msg = JSON.parse(data);
     console.log("WebSocket message received:", msg);
 
-    if (msg.type === "offer") {
-      console.log("Received offer");
+    // サーバーからクライアントIDを受信
+    if (msg.type === "client-id") {
+      clientId = msg.clientId;
+      // clientIdを取得してからofferを要求
+      ws.send(JSON.stringify({ type: "request-offer", clientId }));
+    }
+
+    if (msg.type === "offer" && msg.clientId === clientId) {
       await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
 
       // 再生中に受け取った ICE を先に適用
@@ -52,8 +59,8 @@ function connect() {
 
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      ws.send(JSON.stringify({ type: "answer", answer }));
-    } else if (msg.type === "candidate") {
+      ws.send(JSON.stringify({ type: "answer", answer, clientId }));
+    } else if (msg.type === "candidate" && msg.clientId === clientId) {
       if (!pc.remoteDescription || !pc.remoteDescription.type) {
         candidateQueue.push(msg.candidate);
       } else {
@@ -68,17 +75,15 @@ function connect() {
   };
 
   pc.ontrack = e => {
-    console.log("Track received:", e.streams[0]);
     document.getElementById("remoteVideo").srcObject = e.streams[0];
   };
 
   pc.onicecandidate = e => {
-    if (e.candidate) {
-      ws.send(JSON.stringify({ type: "candidate", candidate: e.candidate }));
+    if (e.candidate && clientId !== null) {
+      ws.send(JSON.stringify({ type: "candidate", candidate: e.candidate, clientId }));
     }
   };
 }
-
-  </script>
+</script>
 </body>
 </html>
