@@ -2,6 +2,7 @@
 <html>
 <head>
   <title>WebRTC Client</title>
+  <meta charset="utf-8">
 </head>
 <body>
   <h2>WSSアドレスを入力</h2>
@@ -10,16 +11,21 @@
   <video id="remoteVideo" autoplay playsinline controls></video>
 
 <script>
-let pc = null, ws = null;
-let clientId = null;
+let pc = null, ws = null, clientId = null;
+let dataChannel = null, dcKeepAliveInterval = null;
 
 function connect() {
   const url = document.getElementById("wssUrl").value;
 
   if (ws && ws.readyState === WebSocket.OPEN) ws.close();
   if (pc) {
+    if (dataChannel && dcKeepAliveInterval) {
+      clearInterval(dcKeepAliveInterval);
+      dcKeepAliveInterval = null;
+    }
     pc.ontrack = null;
     pc.onicecandidate = null;
+    pc.ondatachannel = null;
     pc.close();
     pc = null;
   }
@@ -41,22 +47,17 @@ function connect() {
     const msg = JSON.parse(data);
     console.log("WebSocket message received:", msg);
 
-    // サーバーからクライアントIDを受信
     if (msg.type === "client-id") {
       clientId = msg.clientId;
-      // clientIdを取得してからofferを要求
       ws.send(JSON.stringify({ type: "request-offer", clientId }));
     }
-
     if (msg.type === "offer" && msg.clientId === clientId) {
       await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
-
-      // 再生中に受け取った ICE を先に適用
+      // 先に受け取ったICEを適用
       for (const candidate of candidateQueue) {
         await pc.addIceCandidate(new RTCIceCandidate(candidate));
       }
       candidateQueue = [];
-
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       ws.send(JSON.stringify({ type: "answer", answer, clientId }));
@@ -72,6 +73,10 @@ function connect() {
   ws.onclose = () => {
     alert("ホストとの接続が切断されました。");
     document.getElementById("remoteVideo").srcObject = null;
+    if (dataChannel && dcKeepAliveInterval) {
+      clearInterval(dcKeepAliveInterval);
+      dcKeepAliveInterval = null;
+    }
   };
 
   pc.ontrack = e => {
@@ -82,6 +87,26 @@ function connect() {
     if (e.candidate && clientId !== null) {
       ws.send(JSON.stringify({ type: "candidate", candidate: e.candidate, clientId }));
     }
+  };
+
+  // DataChannel受信対応
+  pc.ondatachannel = (event) => {
+    dataChannel = event.channel;
+    dataChannel.onopen = () => {
+      // 5秒ごとにkeepalive送信
+      dcKeepAliveInterval = setInterval(() => {
+        if (dataChannel.readyState === "open") {
+          dataChannel.send("keepalive");
+        }
+      }, 5000);
+    };
+    dataChannel.onclose = () => {
+      if (dcKeepAliveInterval) clearInterval(dcKeepAliveInterval);
+      dcKeepAliveInterval = null;
+    };
+    dataChannel.onmessage = (e) => {
+      // "keepalive"メッセージは無視してOK
+    };
   };
 }
 </script>
