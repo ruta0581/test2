@@ -41,6 +41,8 @@
       display: block;
       border-radius: 0 !important;
     }
+    .controller-btn { max-width:500px; margin:14px auto 0 auto; font-size:1.3em; padding:14px 0; background:#009688; color:#fff; border:none; border-radius:14px; font-weight:bold; letter-spacing:0.08em; cursor:pointer; }
+    .controller-btn[disabled] { opacity:0.6; cursor:not-allowed; }
   </style>
 </head>
 <body>
@@ -79,23 +81,25 @@
       </div>
     </div>
     <span class="formblock"></span>
-    <button id="connectbtn" class="big-btn" disabled>接続</button>
+    <button id="connectbtn" class="big-btn" disabled>映像＋名前つきで接続</button>
+    <button id="controllerbtn" type="button" class="controller-btn">コントローラーP2Pのみで接続</button>
   </form>
   <div id="status"></div>
 <script>
-  // --- ゲームパッド送信用ロジック（もともとのcliant.html）
+  // 映像・汎用P2P関連
   let ws = null, pc = null, dataChannel = null;
   let connected = false, connecting = false, padIndex = null;
-  let lastPadSelect = 0;
   let padList = [];
-  let wslURL = "";
-  let vdoID = "";
+  let wslURL = "", vdoID = "";
   let padSelectEl = document.getElementById("padSelect");
   let intervalId = null;
   let clientId = null;
   let candidateQueue = [];
   let wsPingInterval = null;
   let remoteVideo = document.getElementById("remoteVideo");
+
+  // コントローラー専用P2P関連
+  let ctrlWs = null, ctrlPc = null, ctrlDc = null, ctrlIntervalId = null, ctrlConnected = false;
 
   function updatePadIndicator(active) {
     document.getElementById('pad-status-indicator').style.background = active ? '#2ecc40' : '#888';
@@ -131,7 +135,7 @@
 
   function setStatus(text) { document.getElementById('status').textContent = text; }
   function refreshPadList() {
-    if (connected) return;
+    if (connected || ctrlConnected) return;
     padList = [];
     const pads = navigator.getGamepads();
     padSelectEl.innerHTML = "";
@@ -159,20 +163,17 @@
   document.getElementById("refreshPad").onclick = refreshPadList;
   refreshPadList();
 
-  // --- 切断時の共通処理
+  // --- 映像用・汎用P2P機能 ---
   function disconnectCleanup() {
     if (dataChannel && dataChannel.readyState === "open") try { dataChannel.close(); } catch {}
     if (pc) try { pc.close(); } catch {}
     if (ws && ws.readyState <= 1) try { ws.close(); } catch {}
     if (intervalId) { clearInterval(intervalId); intervalId = null; }
     if (wsPingInterval) { clearInterval(wsPingInterval); wsPingInterval = null; }
-    dataChannel = null;
-    pc = null;
-    ws = null;
-    connected = false;
-    connecting = false;
+    dataChannel = null; pc = null; ws = null;
+    connected = false; connecting = false;
     setFormLock(false);
-    document.getElementById('connectbtn').textContent = '接続';
+    document.getElementById('connectbtn').textContent = '映像＋名前つきで接続';
     setStatus('切断しました');
     updatePadIndicator(false);
     refreshPadList();
@@ -180,7 +181,6 @@
     remoteVideo.srcObject = null;
   }
 
-  // wslURLとvdoID自動抽出＋iframe反映
   function updateWSL() {
     let raw = document.getElementById('wsl').value.trim();
     wslURL = "";
@@ -201,7 +201,6 @@
   }
   document.getElementById('wsl').addEventListener("input", updateWSL);
 
-  // --- PeerConnection作成(映像＋データ両対応)
   function createPeerConnection() {
     const newPc = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
@@ -282,7 +281,7 @@
     if (!/^wss:\/\/.+/.test(rawUrl)) {
       setStatus("正しいWSSアドレスを入力してください");
       setFormLock(false);
-      document.getElementById('connectbtn').textContent = '接続';
+      document.getElementById('connectbtn').textContent = '映像＋名前つきで接続';
       return;
     }
     if (ws && ws.readyState === WebSocket.OPEN) ws.close();
@@ -341,7 +340,7 @@
         setStatus("サーバーエラー: " + msg.reason);
         connecting = false;
         setFormLock(false);
-        document.getElementById('connectbtn').textContent = '接続';
+        document.getElementById('connectbtn').textContent = '映像＋名前つきで接続';
         try { ws.close(); } catch {}
       }
     };
@@ -349,7 +348,7 @@
     ws.onclose = () => {
       connected = false;
       setFormLock(false);
-      document.getElementById('connectbtn').textContent = '接続';
+      document.getElementById('connectbtn').textContent = '映像＋名前つきで接続';
       setStatus("シグナリング切断");
       remoteVideo.srcObject = null;
       closePeerConnection();
@@ -365,7 +364,6 @@
     setTimeout(connect, 300);
   }
 
-  // --- ゲームパッドデータ送信部分
   function encodeGamepadData(pad) {
     let btnBits = 0;
     for (let i = 0; i < 16; i++) {
@@ -434,11 +432,96 @@
     }, 8);
   }
 
-  // --- 映像クリックで停止しないように
   remoteVideo.addEventListener('pause', (e) => { remoteVideo.play(); });
-
-  // 初期化
   updateWSL();
+
+  // --- コントローラーP2P専用モード ---
+  document.getElementById('controllerbtn').onclick = () => {
+    if (ctrlConnected) {
+      disconnectController();
+      return;
+    }
+    const wssurl = document.getElementById("wsl").value.trim();
+    const idx = parseInt(document.getElementById("padSelect").value);
+    if (!/^wss:\/\/.+/.test(wssurl)) { setStatus("正しいWSSアドレスを入力"); return; }
+    if (isNaN(idx)) { setStatus("ゲームパッド未検出"); return; }
+    setStatus("コントローラーP2Pシグナリング中...");
+    ctrlWs = new WebSocket(wssurl);
+    ctrlWs.onopen = () => {
+      ctrlWs.send(JSON.stringify({ role: "controller" }));
+    };
+    ctrlPc = null;
+    ctrlDc = null;
+    ctrlWs.onmessage = async ({ data }) => {
+      const msg = JSON.parse(data);
+      if (msg.type === "offer") {
+        ctrlPc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+        ctrlPc.onicecandidate = e => {
+          if (e.candidate) ctrlWs.send(JSON.stringify({ type: "candidate", candidate: e.candidate }));
+        };
+        ctrlPc.ondatachannel = (event) => {
+          ctrlDc = event.channel;
+          ctrlDc.onopen = () => {
+            ctrlConnected = true;
+            setStatus('コントローラーP2P送信開始');
+            document.getElementById("controllerbtn").textContent = "コントローラー切断";
+            startPadSendingController(idx);
+          };
+          ctrlDc.onclose = () => { setStatus('コントローラー切断'); ctrlConnected = false; document.getElementById("controllerbtn").textContent = "コントローラーP2Pのみで接続"; };
+        };
+        await ctrlPc.setRemoteDescription(new RTCSessionDescription(msg.offer));
+        const answer = await ctrlPc.createAnswer();
+        await ctrlPc.setLocalDescription(answer);
+        ctrlWs.send(JSON.stringify({ type: "answer", answer }));
+      } else if (msg.type === "candidate") {
+        if (ctrlPc) await ctrlPc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+      } else if (msg.type === "error") {
+        setStatus("サーバーエラー: " + (msg.reason || ""));
+        disconnectController();
+      }
+    };
+    ctrlWs.onclose = () => {
+      disconnectController();
+    };
+  };
+
+  function startPadSendingController(idx) {
+    if (ctrlIntervalId) clearInterval(ctrlIntervalId);
+    let prev = null;
+    ctrlIntervalId = setInterval(() => {
+      const pads = navigator.getGamepads();
+      const pad = pads[idx];
+      let active = false;
+      if (pad && ctrlDc && ctrlDc.readyState === "open") {
+        active = !isPadNeutral(pad);
+        const buf = encodeGamepadData(pad);
+        let diff = false;
+        if (!prev) diff = true;
+        else for (let i = 0; i < buf.length; i++) if (buf[i] !== prev[i]) { diff = true; break; }
+        if (diff) {
+          ctrlDc.send(buf.buffer);
+          prev = buf;
+          setStatus("送信中(P2P):");
+        }
+      }
+      updatePadIndicator(active);
+      if (!ctrlConnected && ctrlIntervalId) { clearInterval(ctrlIntervalId); ctrlIntervalId = null; }
+    }, 8);
+  }
+
+  function disconnectController() {
+    if (ctrlDc && ctrlDc.readyState === "open") try { ctrlDc.close(); } catch {}
+    if (ctrlPc) try { ctrlPc.close(); } catch {}
+    if (ctrlWs && ctrlWs.readyState <= 1) try { ctrlWs.close(); } catch {}
+    if (ctrlIntervalId) clearInterval(ctrlIntervalId);
+    ctrlDc = ctrlPc = ctrlWs = ctrlIntervalId = null;
+    ctrlConnected = false;
+    setStatus("コントローラー切断");
+    document.getElementById("controllerbtn").textContent = "コントローラーP2Pのみで接続";
+    updatePadIndicator(false);
+    refreshPadList();
+  }
+
 </script>
 </body>
 </html>
