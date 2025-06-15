@@ -1,9 +1,22 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
-  <title>WebRTC Client</title>
   <meta charset="utf-8">
+  <title>WebRTC クライアント (映像+ゲームパッド)</title>
   <style>
+    html, body { margin:0; padding:0; background:#f4f7fa; width:100vw; min-height:100vh; }
+    #pad-status { position:fixed; left:18px; top:18px; width:10px; height:10px; z-index:9999; }
+    #pad-status-indicator { display:block; width:8px; height:8px; border-radius:4px; border:1px solid #888; background:#888; transition:background 0.2s; }
+    h2, form, #status { max-width:800px; margin-left:auto; margin-right:auto; text-align:center; }
+    form { margin-top:24px; }
+    .formblock { display:block; margin-top:10px; }
+    .big-btn { display:block; width:100%; max-width:500px; margin:24px auto 0 auto; font-size:2.2em; padding:22px 0; background:#2196f3; color:#fff; border:none; border-radius:14px; font-weight:bold; letter-spacing:0.08em; cursor:pointer; transition:background 0.18s; }
+    .big-btn:hover:enabled { background:#1565c0; }
+    .big-btn:disabled { opacity:0.5; cursor:not-allowed; }
+    label { margin-right:12px; }
+    select, input[type=text] { font-size:1.1em; padding:4px 8px; }
+    #refreshPad { font-size:0.95em; padding:5px 12px; margin-left:8px; }
+    #status { margin-top:24px; }
     #remoteVideo {
       width: 100%;
       max-width: 1280px;
@@ -12,190 +25,420 @@
       display: block;
       margin: 1em auto;
     }
-    #ctrl {
-      text-align: center;
-      margin: 1em;
+    #vdo-wrap {
+      margin: 0 auto 0 auto;
+      width: 100vw;
+      max-width: 100vw;
+      aspect-ratio: 16/9;
+      background: #222;
+      overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
+      border: none;
+    }
+    #vdo-iframe {
+      width: 100%; height: 100%; border: none;
+      background: #222;
+      display: block;
+      border-radius: 0 !important;
     }
   </style>
 </head>
 <body>
-  <h2>WSSアドレスを入力</h2>
-  <div id="ctrl">
-    <input id="wssUrl" placeholder="wss://..." style="width: 300px;">
-    <button id="connectBtn" onclick="toggleConnection()">接続</button>
+  <div id="pad-status">
+    <span id="pad-status-indicator"></span>
   </div>
+  <!-- 追加: WebRTC受信ビデオ -->
   <video id="remoteVideo" autoplay playsinline controls></video>
-
+  <div id="vdo-wrap">
+    <iframe id="vdo-iframe" allow="autoplay; fullscreen"></iframe>
+  </div>
+  <form id="connectform" onsubmit="return false;">
+    <div style="display: table; margin: 0 auto;">
+      <div style="display: table-row;">
+        <label style="display: table-cell; padding: 6px 10px; text-align:right;">名前:</label>
+        <div style="display: table-cell;">
+          <input type="text" id="uname" required autocomplete="off" style="width: 24em; max-width: 90vw;">
+          <div id="name-error" style="color:red; font-size:1em; min-height:1.4em; height:1.4em;"></div>
+        </div>
+      </div>
+      <div style="display: table-row;">
+        <label style="display: table-cell; padding: 6px 10px; text-align:right;">wssアドレス:</label>
+        <div style="display: table-cell;">
+          <input type="text" id="wsl" placeholder="wss://..." autocomplete="off" style="width: 24em; max-width: 90vw;">
+          <div style="color:red; font-size:1em; min-height:1.4em; height:1.4em;"></div>
+        </div>
+      </div>
+      <div style="display: table-row;">
+        <label style="display: table-cell; padding: 6px 10px; text-align:right;">使用ゲームパッド:</label>
+        <div style="display: table-cell;">
+          <div style="display: flex; align-items: center; min-width: 12em;">
+            <select id="padSelect" style="min-width: 10em; max-width: 20em;"></select>
+            <button type="button" id="refreshPad" style="margin-left:8px;">再検出</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <span class="formblock"></span>
+    <button id="connectbtn" class="big-btn" disabled>接続</button>
+  </form>
+  <div id="status"></div>
 <script>
-let pc = null, ws = null, clientId = null;
-let dataChannel = null, dcKeepAliveInterval = null;
-let wsPingInterval = null;
-let connected = false;
-
-function createPeerConnection() {
-  const newPc = new RTCPeerConnection({
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
-  });
-
-  newPc.ontrack = e => {
-    document.getElementById("remoteVideo").srcObject = e.streams[0];
-  };
-  newPc.onicecandidate = e => {
-    if (e.candidate && clientId !== null && ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "candidate", candidate: e.candidate, clientId }));
-    }
-  };
-  newPc.ondatachannel = (event) => {
-    dataChannel = event.channel;
-    dataChannel.onopen = () => {
-      dcKeepAliveInterval = setInterval(() => {
-        if (dataChannel.readyState === "open") {
-          dataChannel.send("keepalive");
-        }
-      }, 5000);
-    };
-    dataChannel.onclose = () => {
-      if (dcKeepAliveInterval) clearInterval(dcKeepAliveInterval);
-      dcKeepAliveInterval = null;
-    };
-    dataChannel.onmessage = (e) => {};
-  };
-  return newPc;
-}
-
-function closePeerConnection() {
-  if (pc) {
-    pc.ontrack = null;
-    pc.onicecandidate = null;
-    pc.ondatachannel = null;
-    pc.close();
-    pc = null;
-  }
-  if (dataChannel && dcKeepAliveInterval) {
-    clearInterval(dcKeepAliveInterval);
-    dcKeepAliveInterval = null;
-  }
-}
-
-function connect() {
-  const url = document.getElementById("wssUrl").value;
-  if (!/^wss:\/\/.+/.test(url)) {
-    alert("正しいWSSアドレスを入力してください");
-    return;
-  }
-  if (ws && ws.readyState === WebSocket.OPEN) ws.close();
-  closePeerConnection();
-
-  if (wsPingInterval) {
-    clearInterval(wsPingInterval);
-    wsPingInterval = null;
-  }
-
-  ws = new WebSocket(url);
-  pc = createPeerConnection();
+  // --- ゲームパッド送信用ロジック（もともとのcliant.html）
+  let ws = null, pc = null, dataChannel = null;
+  let connected = false, connecting = false, padIndex = null;
+  let lastPadSelect = 0;
+  let padList = [];
+  let wslURL = "";
+  let vdoID = "";
+  let padSelectEl = document.getElementById("padSelect");
+  let intervalId = null;
+  let clientId = null;
   let candidateQueue = [];
+  let wsPingInterval = null;
+  let remoteVideo = document.getElementById("remoteVideo");
 
-  ws.onopen = () => {
-    connected = true;
-    updateButton();
-    ws.send(JSON.stringify({ role: "client" }));
-    wsPingInterval = setInterval(() => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "ping" }));
+  function updatePadIndicator(active) {
+    document.getElementById('pad-status-indicator').style.background = active ? '#2ecc40' : '#888';
+  }
+  function setFormLock(isLock) {
+    document.getElementById('uname').disabled = isLock;
+    document.getElementById('wsl').disabled = isLock;
+    document.getElementById('padSelect').disabled = isLock;
+    document.getElementById('refreshPad').disabled = isLock;
+  }
+  function validateNameAndPad() {
+    const nameInput = document.getElementById('uname');
+    const errorDiv = document.getElementById('name-error');
+    const connectBtn = document.getElementById('connectbtn');
+    const padOK = document.getElementById('padSelect').options.length && document.getElementById('padSelect').value !== "";
+    if (nameInput.value.length > 10) {
+      errorDiv.textContent = "※名前は10文字以内にしてください";
+      connectBtn.disabled = true;
+    } else if (!padOK) {
+      errorDiv.textContent = "";
+      connectBtn.disabled = true;
+    } else {
+      errorDiv.textContent = "";
+      connectBtn.disabled = false;
+    }
+  }
+  document.getElementById('uname').addEventListener('input', validateNameAndPad);
+  document.getElementById('padSelect').addEventListener('change', validateNameAndPad);
+  document.getElementById('refreshPad').addEventListener('click', function() {
+    setTimeout(validateNameAndPad, 10);
+  });
+  window.addEventListener('DOMContentLoaded', validateNameAndPad);
+
+  function setStatus(text) { document.getElementById('status').textContent = text; }
+  function refreshPadList() {
+    if (connected) return;
+    padList = [];
+    const pads = navigator.getGamepads();
+    padSelectEl.innerHTML = "";
+    let found = false;
+    for (let i = 0; i < pads.length; i++) {
+      if (pads[i]) {
+        const opt = document.createElement("option");
+        opt.value = i;
+        opt.textContent = `[${i}] ${pads[i].id}`;
+        padSelectEl.appendChild(opt);
+        padList.push(pads[i]);
+        found = true;
       }
-    }, 5000);
-  };
+    }
+    if (!found) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "ゲームパッド未検出";
+      padSelectEl.appendChild(opt);
+    }
+    validateNameAndPad();
+  }
+  window.addEventListener("gamepadconnected", refreshPadList);
+  window.addEventListener("gamepaddisconnected", refreshPadList);
+  document.getElementById("refreshPad").onclick = refreshPadList;
+  refreshPadList();
 
-  ws.onmessage = async ({ data }) => {
-    const msg = JSON.parse(data);
-    // console.log("WebSocket message received:", msg);
+  // --- 切断時の共通処理
+  function disconnectCleanup() {
+    if (dataChannel && dataChannel.readyState === "open") try { dataChannel.close(); } catch {}
+    if (pc) try { pc.close(); } catch {}
+    if (ws && ws.readyState <= 1) try { ws.close(); } catch {}
+    if (intervalId) { clearInterval(intervalId); intervalId = null; }
+    if (wsPingInterval) { clearInterval(wsPingInterval); wsPingInterval = null; }
+    dataChannel = null;
+    pc = null;
+    ws = null;
+    connected = false;
+    connecting = false;
+    setFormLock(false);
+    document.getElementById('connectbtn').textContent = '接続';
+    setStatus('切断しました');
+    updatePadIndicator(false);
+    refreshPadList();
+    document.getElementById("vdo-iframe").src = "";
+    remoteVideo.srcObject = null;
+  }
 
-    if (msg.type === "pong") return;
+  // wslURLとvdoID自動抽出＋iframe反映
+  function updateWSL() {
+    let raw = document.getElementById('wsl').value.trim();
+    wslURL = "";
+    vdoID = "";
+    if (raw.startsWith("http")) {
+      try {
+        let u = new URL(raw);
+        wslURL = "wss://" + u.host + "/ws";
+        vdoID = (u.searchParams.get("view")) || u.pathname.replace(/^\//, "");
+      } catch {}
+    }
+    let vdo = document.getElementById("vdo-iframe");
+    if (vdoID) {
+      vdo.src = "https://vdo.ninja/?view=" + encodeURIComponent(vdoID) + "&maxfps=60&lowlatency&disablejitter&width=1280&height=720";
+    } else {
+      vdo.src = "";
+    }
+  }
+  document.getElementById('wsl').addEventListener("input", updateWSL);
 
-    if (msg.type === "reconnect") {
-      // 映像再接続コマンド受信時、再接続
-      reconnect();
+  // --- PeerConnection作成(映像＋データ両対応)
+  function createPeerConnection() {
+    const newPc = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+    });
+    newPc.ontrack = e => {
+      remoteVideo.srcObject = e.streams[0];
+    };
+    newPc.onicecandidate = e => {
+      if (e.candidate && clientId !== null && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "candidate", candidate: e.candidate, clientId }));
+      }
+    };
+    newPc.ondatachannel = (event) => {
+      dataChannel = event.channel;
+      dataChannel.onopen = () => {
+        connected = true;
+        setStatus('P2P接続完了！送信開始');
+        setFormLock(true);
+        document.getElementById('connectbtn').textContent = '切断';
+        if (ws) try { ws.close(); } catch {}
+        dataChannel.send(JSON.stringify({ type: "hello", name: document.getElementById('uname').value.trim() }));
+        startSending();
+      };
+      dataChannel.onclose = disconnectCleanup;
+      dataChannel.onerror = () => setStatus("DataChannelエラー");
+      dataChannel.onmessage = (ev) => {  
+        try {
+          const msg = JSON.parse(typeof ev.data === "string" ? ev.data : "");
+          if (msg.type === "ping" && msg.ts) {
+            dataChannel.send(JSON.stringify({ type: "pong", ts: msg.ts }));
+            return;
+          }
+          if (msg.type === "ninja_id" && msg.id) {
+            document.getElementById("vdo-iframe").src = "https://vdo.ninja/?view=" + encodeURIComponent(msg.id) + "&maxfps=60&lowlatency&disablejitter&width=1280&height=720";
+            return;
+          }
+          if (msg.type === "disconnect") {
+            disconnectCleanup();
+            return;
+          }
+        } catch {}
+      };
+    };
+    return newPc;
+  }
+
+  function closePeerConnection() {
+    if (pc) {
+      pc.ontrack = null;
+      pc.onicecandidate = null;
+      pc.ondatachannel = null;
+      pc.close();
+      pc = null;
+    }
+    if (dataChannel && intervalId) {
+      clearInterval(intervalId);
+      intervalId = null;
+    }
+  }
+
+  // --- 接続・切断トグル
+  document.getElementById('connectbtn').onclick = () => {
+    if (connected || connecting) {
+      disconnectCleanup();
+      closePeerConnection();
       return;
     }
-
-    if (msg.type === "client-id") {
-      clientId = msg.clientId;
-      ws.send(JSON.stringify({ type: "request-offer", clientId }));
-    }
-    if (msg.type === "offer" && msg.clientId === clientId) {
-      // PeerConnectionを作り直し
-      closePeerConnection();
-      pc = createPeerConnection();
-
-      candidateQueue = [];
-
-      await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
-      for (const candidate of candidateQueue) {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
-      }
-      candidateQueue = [];
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      ws.send(JSON.stringify({ type: "answer", answer, clientId }));
-    } else if (msg.type === "candidate" && msg.clientId === clientId) {
-      if (!pc.remoteDescription || !pc.remoteDescription.type) {
-        candidateQueue.push(msg.candidate);
-      } else {
-        await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-      }
-    }
+    connecting = true;
+    setFormLock(true);
+    document.getElementById('connectbtn').textContent = '切断';
+    setStatus('コントローラー操作待ち...');
+    padIndex = parseInt(document.getElementById('padSelect').value);
+    connect();
   };
 
-  ws.onclose = () => {
-    connected = false;
-    updateButton();
-    document.getElementById("remoteVideo").srcObject = null;
+  function connect() {
+    let rawUrl = document.getElementById('wsl').value.trim();
+    if (!/^wss:\/\/.+/.test(rawUrl)) {
+      setStatus("正しいWSSアドレスを入力してください");
+      setFormLock(false);
+      document.getElementById('connectbtn').textContent = '接続';
+      return;
+    }
+    if (ws && ws.readyState === WebSocket.OPEN) ws.close();
     closePeerConnection();
+
     if (wsPingInterval) {
       clearInterval(wsPingInterval);
       wsPingInterval = null;
     }
-  };
-}
 
-function reconnect() {
-  // 再接続は一度切断してから再度 connect()
-  if (ws && ws.readyState === WebSocket.OPEN) ws.close();
-  setTimeout(connect, 300); // 少し遅延して再接続
-}
+    ws = new WebSocket(rawUrl);
+    pc = createPeerConnection();
+    candidateQueue = [];
+    clientId = null;
 
-// UIのボタン表示を更新
-function updateButton() {
-  const btn = document.getElementById("connectBtn");
-  if (connected) {
-    btn.textContent = "切断";
-  } else {
-    btn.textContent = "接続";
+    ws.onopen = () => {
+      connected = true;
+      setStatus("シグナリングサーバー接続...");
+      ws.send(JSON.stringify({ role: "client" }));
+      wsPingInterval = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "ping" }));
+        }
+      }, 5000);
+    };
+
+    ws.onmessage = async ({ data }) => {
+      const msg = JSON.parse(data);
+      if (msg.type === "pong") return;
+      if (msg.type === "reconnect") { reconnect(); return; }
+      if (msg.type === "client-id") {
+        clientId = msg.clientId;
+        ws.send(JSON.stringify({ type: "request-offer", clientId }));
+      }
+      if (msg.type === "offer" && msg.clientId === clientId) {
+        closePeerConnection();
+        pc = createPeerConnection();
+
+        candidateQueue = [];
+
+        await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
+        for (const candidate of candidateQueue) {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        }
+        candidateQueue = [];
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        ws.send(JSON.stringify({ type: "answer", answer, clientId }));
+      } else if (msg.type === "candidate" && msg.clientId === clientId) {
+        if (!pc.remoteDescription || !pc.remoteDescription.type) {
+          candidateQueue.push(msg.candidate);
+        } else {
+          await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+        }
+      } else if (msg.type === "error") {
+        setStatus("サーバーエラー: " + msg.reason);
+        connecting = false;
+        setFormLock(false);
+        document.getElementById('connectbtn').textContent = '接続';
+        try { ws.close(); } catch {}
+      }
+    };
+
+    ws.onclose = () => {
+      connected = false;
+      setFormLock(false);
+      document.getElementById('connectbtn').textContent = '接続';
+      setStatus("シグナリング切断");
+      remoteVideo.srcObject = null;
+      closePeerConnection();
+      if (wsPingInterval) {
+        clearInterval(wsPingInterval);
+        wsPingInterval = null;
+      }
+    };
   }
-}
 
-// ボタン動作をトグル
-function toggleConnection() {
-  if (connected) {
-    if (ws) ws.close();
-    closePeerConnection();
-    document.getElementById("remoteVideo").srcObject = null;
-    connected = false;
-    updateButton();
-  } else {
-    connect();
+  function reconnect() {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+    setTimeout(connect, 300);
   }
-}
 
-// 映像クリックで停止しないように
-const remoteVideo = document.getElementById("remoteVideo");
-remoteVideo.addEventListener('pause', (e) => {
-  // 一時停止されたら即再生再開
-  remoteVideo.play();
-});
+  // --- ゲームパッドデータ送信部分
+  function encodeGamepadData(pad) {
+    let btnBits = 0;
+    for (let i = 0; i < 16; i++) {
+      if (pad.buttons[i]?.pressed) btnBits |= (1 << i);
+    }
+    const axes = [];
+    for (let i = 0; i < 4; i++) {
+      let v = Math.round((pad.axes[i] ?? 0) * 127.5 + 128);
+      v = Math.max(0, Math.min(255, v));
+      axes.push(v);
+    }
+    let lt = 0, rt = 0;
+    if (pad.buttons[6]) lt = Math.round((pad.buttons[6].value ?? 0) * 255);
+    else if (pad.axes[4] !== undefined) lt = Math.round(((pad.axes[4] + 1) / 2) * 255);
+    if (pad.buttons[7]) rt = Math.round((pad.buttons[7].value ?? 0) * 255);
+    else if (pad.axes[5] !== undefined) rt = Math.round(((pad.axes[5] + 1) / 2) * 255);
+    lt = Math.max(0, Math.min(255, lt));
+    rt = Math.max(0, Math.min(255, rt));
+    const buf = new Uint8Array(8);
+    buf[0] = btnBits & 0xFF;
+    buf[1] = (btnBits >> 8) & 0xFF;
+    buf[2] = axes[0] & 0xFF;
+    buf[3] = axes[1] & 0xFF;
+    buf[4] = axes[2] & 0xFF;
+    buf[5] = axes[3] & 0xFF;
+    buf[6] = lt & 0xFF;
+    buf[7] = rt & 0xFF;
+    return buf;
+  }
+  function isPadNeutral(pad) {
+    for (let i = 0; i < 16; i++) if (pad.buttons[i]?.pressed) return false;
+    const DEADZONE = 0.07;
+    for (let i = 0; i < 4; i++) if (Math.abs(pad.axes[i] ?? 0) > DEADZONE) return false;
+    if ((pad.buttons[6]?.value ?? 0) > 0.01) return false;
+    if ((pad.buttons[7]?.value ?? 0) > 0.01) return false;
+    return true;
+  }
+  function startSending() {
+    if (intervalId) {
+      clearInterval(intervalId);
+      intervalId = null;
+    }
+    let prev = null;
+    intervalId = setInterval(() => {
+      const pad = navigator.getGamepads()[padIndex];
+      let active = false;
+      if (pad && dataChannel && dataChannel.readyState === "open") {
+        active = !isPadNeutral(pad);
+        const buf = encodeGamepadData(pad);
+        let diff = false;
+        if (!prev) diff = true;
+        else for (let i = 0; i < buf.length; i++) {
+          if (buf[i] !== prev[i]) { diff = true; break; }
+        }
+        if (diff) {
+          dataChannel.send(buf.buffer);
+          prev = buf;
+          setStatus('送信中:');
+        }
+      }
+      updatePadIndicator(active);
+      if (!connected && intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    }, 8);
+  }
 
-// ダブルクリックの全画面や音量変更等はcontrolsのままOK
+  // --- 映像クリックで停止しないように
+  remoteVideo.addEventListener('pause', (e) => { remoteVideo.play(); });
 
+  // 初期化
+  updateWSL();
 </script>
 </body>
 </html>
