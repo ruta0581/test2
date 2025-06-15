@@ -4,221 +4,66 @@
   <title>WebRTC Client</title>
   <meta charset="utf-8">
   <style>
-    html, body {
-      width: 100vw; height: 100vh;
-      margin: 0; padding: 0;
-      background: #101015;
-      overflow: hidden;
-    }
-    #mainArea {
-      width:100vw; height:100vh; display:flex; align-items:center; justify-content:center;
-    }
-#remoteVideo {
-  width: 100vw;
-  height: 100vh;
-  max-width: 1280px;
-  max-height: 720px;
-  aspect-ratio: 16/9;
-  background: #111;
-  object-fit: contain;
-  display: block;
-  margin: 0 auto;
-  box-shadow: 0 0 24px #000a;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges; /* Firefox等 */
-}
-    #connBox {
-      position: absolute;
-      top: 24px;
-      left: 0; width: 100vw;
-      text-align: center;
+    #remoteVideo {
+      width: 100%;
+      max-width: 1280px;
+      height: auto;
       background: #222;
-      color: #eee;
-      padding: 8px 0;
-      z-index: 10;
+      display: block;
+      margin: 1em auto;
     }
-    #connBox input { width:340px; }
-    #connBox button { font-size:1em; padding: 0.3em 1.4em; }
-    #errorBox {
-      position: absolute;
-      left: 0; top: 0; width: 100vw; height: 100vh;
-      display: flex; align-items: center; justify-content: center;
-      pointer-events: none; /* エラー表示中も入力欄にはアクセス可能 */
-      z-index: 100;
-    }
-    #errorMsg {
-      background: #e11; color: #fff; padding: 2em 3em; font-size: 2em;
-      border-radius: 20px; font-weight: bold; box-shadow: 0 0 32px #000c;
-      pointer-events: auto;
-      display: none;
+    #ctrl {
+      text-align: center;
+      margin: 1em;
     }
   </style>
 </head>
 <body>
-<div id="connBox">
-  WSSアドレス:
-  <input id="wssUrl" placeholder="http(s)://から始まるURLのみ有効">
-  <button id="connectBtn" onclick="toggleConnect()">接続</button>
-</div>
-<div id="errorBox">
-  <div id="errorMsg"></div>
-</div>
-<div id="mainArea">
-  <video id="remoteVideo" autoplay playsinline controls
-    controlsList="nodownload noremoteplayback"
-    preload="auto"
-    tabindex="0"
-    style="outline:none;">
-  </video>
-</div>
+  <h2>WSSアドレスを入力</h2>
+  <div id="ctrl">
+    <input id="wssUrl" placeholder="wss://..." style="width: 300px;">
+    <button id="connectBtn" onclick="toggleConnection()">接続</button>
+  </div>
+  <video id="remoteVideo" autoplay playsinline controls></video>
+
 <script>
-let ws = null, pc = null, dataChannel = null, dcKeepAliveInterval = null, clientId = null;
-let isConnected = false, reconnectRequested = false;
+let pc = null, ws = null, clientId = null;
+let dataChannel = null, dcKeepAliveInterval = null;
+let wsPingInterval = null;
+let connected = false;
 
-// アドレスを自動補正する関数
-function fixWssUrl(raw) {
-  let url = raw.trim();
-  if (/^wss:\/\/.+\/ws$/.test(url)) return url;
-  if (/^wss:\/\//.test(url)) {
-    if (!/\/ws$/.test(url)) url += "/ws";
-    return url;
-  }
-  // http(s):// → wss://
-  url = url.replace(/^https?:\/\//, "wss://");
-  if (!/\/ws$/.test(url)) url += "/ws";
-  return url;
-}
+function createPeerConnection() {
+  const newPc = new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+  });
 
-// エラーメッセージ表示・非表示
-function showError(msg) {
-  const box = document.getElementById("errorMsg");
-  box.textContent = msg;
-  box.style.display = "block";
-  setTimeout(() => { box.style.display = "none"; }, 3500);
-}
-function setConnectButton(state) {
-  const btn = document.getElementById("connectBtn");
-  if (state === "connect") {
-    btn.textContent = "接続";
-    btn.disabled = false;
-  } else if (state === "disconnect") {
-    btn.textContent = "切断";
-    btn.disabled = false;
-  } else if (state === "waiting") {
-    btn.textContent = "待機中…";
-    btn.disabled = true;
-  }
-}
-
-function toggleConnect() {
-  if (!isConnected) {
-    connect();
-  } else {
-    disconnect();
-  }
-}
-
-async function connect() {
-  setConnectButton("waiting");
-  let urlInput = document.getElementById("wssUrl").value.trim();
-
-  // ★ http/httpsが含まれていない場合はエラー
-  if (!/^https?:\/\//.test(urlInput)) {
-    showError("http:// または https:// から始まるURLを入力してください");
-    setConnectButton("connect");
-    return;
-  }
-
-  let wssUrl = fixWssUrl(urlInput);
-  document.getElementById("wssUrl").value = wssUrl;
-
-  ws = new WebSocket(wssUrl);
-  ws.onopen = () => {
-    ws.send(JSON.stringify({ role: "client" }));
-    setConnectButton("disconnect");
-    isConnected = true;
-  };
-  ws.onmessage = async ({ data }) => {
-    const msg = JSON.parse(data);
-    if (msg.type === "client-id") {
-      clientId = msg.clientId;
-      ws.send(JSON.stringify({ type: "request-offer", clientId }));
-      setupPeerConnection();
-    }
-    if (msg.type === "offer" && msg.clientId === clientId) {
-      if (!pc) setupPeerConnection();
-      await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      ws.send(JSON.stringify({ type: "answer", answer, clientId }));
-    }
-    if (msg.type === "candidate" && msg.clientId === clientId) {
-      if (pc && msg.candidate) {
-        await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-      }
-    }
-    // ホストから「reconnect-video」コマンド受信時は再接続
-    if (msg.type === "reconnect-video") {
-      reconnectRequested = true;
-      disconnect(true);
-    }
-  };
-  ws.onclose = () => {
-    setConnectButton("connect");
-    isConnected = false;
-    cleanupPeerConnection();
-    if (reconnectRequested) {
-      reconnectRequested = false;
-      setTimeout(connect, 300);
-    }
-  };
-  ws.onerror = (e) => {
-    setConnectButton("connect");
-    isConnected = false;
-    showError("WebSocket接続エラー");
-  };
-}
-
-function disconnect(shouldReconnect=false) {
-  if (ws && ws.readyState === WebSocket.OPEN) ws.close();
-  cleanupPeerConnection();
-  setConnectButton("connect");
-  isConnected = false;
-  if (!shouldReconnect) reconnectRequested = false;
-}
-
-// PeerConnection + keepalive
-function setupPeerConnection() {
-  if (pc) cleanupPeerConnection();
-  pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
-  pc.ontrack = e => {
+  newPc.ontrack = e => {
     document.getElementById("remoteVideo").srcObject = e.streams[0];
   };
-  pc.onicecandidate = e => {
-    if (e.candidate && ws && ws.readyState === WebSocket.OPEN) {
+  newPc.onicecandidate = e => {
+    if (e.candidate && clientId !== null && ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "candidate", candidate: e.candidate, clientId }));
     }
   };
-  pc.ondatachannel = (event) => {
+  newPc.ondatachannel = (event) => {
     dataChannel = event.channel;
     dataChannel.onopen = () => {
       dcKeepAliveInterval = setInterval(() => {
-        if (dataChannel.readyState === "open") dataChannel.send("keepalive");
+        if (dataChannel.readyState === "open") {
+          dataChannel.send("keepalive");
+        }
       }, 5000);
     };
     dataChannel.onclose = () => {
       if (dcKeepAliveInterval) clearInterval(dcKeepAliveInterval);
       dcKeepAliveInterval = null;
     };
-    dataChannel.onmessage = () => {};
+    dataChannel.onmessage = (e) => {};
   };
+  return newPc;
 }
-function cleanupPeerConnection() {
-  if (dataChannel && dcKeepAliveInterval) {
-    clearInterval(dcKeepAliveInterval);
-    dcKeepAliveInterval = null;
-  }
-  dataChannel = null;
+
+function closePeerConnection() {
   if (pc) {
     pc.ontrack = null;
     pc.onicecandidate = null;
@@ -226,24 +71,131 @@ function cleanupPeerConnection() {
     pc.close();
     pc = null;
   }
-  document.getElementById("remoteVideo").srcObject = null;
+  if (dataChannel && dcKeepAliveInterval) {
+    clearInterval(dcKeepAliveInterval);
+    dcKeepAliveInterval = null;
+  }
 }
 
-// --- videoのクリックでは再生/停止が絶対切り替わらないようにする ---
-const video = document.getElementById("remoteVideo");
-video.addEventListener("click", e => {
-  // play/pauseトグルを無効化（stopPropagationでダブルで防止）
-  e.preventDefault();
-  e.stopPropagation();
-  // ただし音量・全画面はvideoのコントロールバーでOK
+function connect() {
+  const url = document.getElementById("wssUrl").value;
+  if (!/^wss:\/\/.+/.test(url)) {
+    alert("正しいWSSアドレスを入力してください");
+    return;
+  }
+  if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+  closePeerConnection();
+
+  if (wsPingInterval) {
+    clearInterval(wsPingInterval);
+    wsPingInterval = null;
+  }
+
+  ws = new WebSocket(url);
+  pc = createPeerConnection();
+  let candidateQueue = [];
+
+  ws.onopen = () => {
+    connected = true;
+    updateButton();
+    ws.send(JSON.stringify({ role: "client" }));
+    wsPingInterval = setInterval(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "ping" }));
+      }
+    }, 5000);
+  };
+
+  ws.onmessage = async ({ data }) => {
+    const msg = JSON.parse(data);
+    // console.log("WebSocket message received:", msg);
+
+    if (msg.type === "pong") return;
+
+    if (msg.type === "reconnect") {
+      // 映像再接続コマンド受信時、再接続
+      reconnect();
+      return;
+    }
+
+    if (msg.type === "client-id") {
+      clientId = msg.clientId;
+      ws.send(JSON.stringify({ type: "request-offer", clientId }));
+    }
+    if (msg.type === "offer" && msg.clientId === clientId) {
+      // PeerConnectionを作り直し
+      closePeerConnection();
+      pc = createPeerConnection();
+
+      candidateQueue = [];
+
+      await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
+      for (const candidate of candidateQueue) {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      }
+      candidateQueue = [];
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      ws.send(JSON.stringify({ type: "answer", answer, clientId }));
+    } else if (msg.type === "candidate" && msg.clientId === clientId) {
+      if (!pc.remoteDescription || !pc.remoteDescription.type) {
+        candidateQueue.push(msg.candidate);
+      } else {
+        await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+      }
+    }
+  };
+
+  ws.onclose = () => {
+    connected = false;
+    updateButton();
+    document.getElementById("remoteVideo").srcObject = null;
+    closePeerConnection();
+    if (wsPingInterval) {
+      clearInterval(wsPingInterval);
+      wsPingInterval = null;
+    }
+  };
+}
+
+function reconnect() {
+  // 再接続は一度切断してから再度 connect()
+  if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+  setTimeout(connect, 300); // 少し遅延して再接続
+}
+
+// UIのボタン表示を更新
+function updateButton() {
+  const btn = document.getElementById("connectBtn");
+  if (connected) {
+    btn.textContent = "切断";
+  } else {
+    btn.textContent = "接続";
+  }
+}
+
+// ボタン動作をトグル
+function toggleConnection() {
+  if (connected) {
+    if (ws) ws.close();
+    closePeerConnection();
+    document.getElementById("remoteVideo").srcObject = null;
+    connected = false;
+    updateButton();
+  } else {
+    connect();
+  }
+}
+
+// 映像クリックで停止しないように
+const remoteVideo = document.getElementById("remoteVideo");
+remoteVideo.addEventListener('pause', (e) => {
+  // 一時停止されたら即再生再開
+  remoteVideo.play();
 });
-video.addEventListener("play", e => {
-  // playイベントは許可（自動再生）
-});
-video.addEventListener("pause", e => {
-  // pauseイベントがユーザーのクリック操作で発生した場合は即座に再開
-  setTimeout(()=>{ if(video.paused) video.play(); },10);
-});
+
+// ダブルクリックの全画面や音量変更等はcontrolsのままOK
+
 </script>
 </body>
 </html>
