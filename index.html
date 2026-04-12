@@ -1,162 +1,865 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="ja">
 <head>
-  <title>WebRTC Client</title>
-  <meta charset="utf-8">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>AR名刺サイト スターター v2</title>
+
+  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+  <script src="./app-config.js"></script>
+
   <style>
-    #remoteVideo {
-      width: 100%;
-      max-width: 1280px;
-      height: auto;
-      background: #222;
-      display: block;
-      margin: 1em auto;
+    :root {
+      --panel-bg: rgba(10, 14, 24, 0.76);
+      --panel-border: rgba(255, 255, 255, 0.18);
+      --text: #ffffff;
+      --muted: rgba(255, 255, 255, 0.78);
+      --button-size: 58px;
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
     }
-    #ctrl {
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      touch-action: manipulation;
+    }
+
+    body {
+      position: fixed;
+      inset: 0;
+    }
+
+    #uiRoot {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      pointer-events: none;
+    }
+
+    .topbar {
+      position: fixed;
+      left: 12px;
+      right: 12px;
+      top: calc(12px + var(--safe-top));
+      display: grid;
+      gap: 8px;
+      pointer-events: none;
+    }
+
+    .status-card {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 18px;
+      padding: 12px 14px;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+    }
+
+    .status-title {
+      font-size: 14px;
+      color: var(--muted);
+      margin: 0 0 4px;
+    }
+
+    .status-value {
+      font-size: 18px;
+      font-weight: 700;
+      margin: 0;
+      line-height: 1.2;
+    }
+
+    .status-sub {
+      margin-top: 8px;
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .control-stack {
+      position: fixed;
+      top: 50%;
+      transform: translateY(-50%);
+      display: grid;
+      gap: 10px;
+      pointer-events: auto;
+    }
+
+    .control-stack.left { left: 12px; }
+    .control-stack.right { right: 12px; }
+
+    .stack-label {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 16px;
+      padding: 10px 12px;
+      min-width: 94px;
       text-align: center;
-      margin: 1em;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+    }
+
+    .stack-label .small {
+      display: block;
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .stack-label .main {
+      display: block;
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.2;
+      word-break: break-word;
+    }
+
+    .stack-button {
+      width: var(--button-size);
+      height: var(--button-size);
+      border-radius: 18px;
+      border: 1px solid var(--panel-border);
+      background: var(--panel-bg);
+      color: #fff;
+      font-size: 28px;
+      font-weight: 800;
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+      pointer-events: auto;
+    }
+
+    .stack-button:active,
+    .floating-button:active,
+    .modal-button:active {
+      transform: scale(0.98);
+    }
+
+    .stack-button:disabled,
+    .floating-button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .floating-button {
+      position: fixed;
+      border: 1px solid var(--panel-border);
+      background: var(--panel-bg);
+      color: #fff;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+      pointer-events: auto;
+      cursor: pointer;
+    }
+
+    #captureButton {
+      right: 12px;
+      bottom: calc(12px + var(--safe-bottom));
+      width: 74px;
+      height: 74px;
+      border-radius: 999px;
+      font-size: 30px;
+      font-weight: 900;
+    }
+
+    #helperPill {
+      position: fixed;
+      left: 12px;
+      right: 96px;
+      bottom: calc(12px + var(--safe-bottom));
+      min-height: 56px;
+      display: flex;
+      align-items: center;
+      padding: 10px 12px;
+      border-radius: 18px;
+      border: 1px solid var(--panel-border);
+      background: var(--panel-bg);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+      pointer-events: none;
+    }
+
+    #toast {
+      position: fixed;
+      left: 50%;
+      bottom: calc(96px + var(--safe-bottom));
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.82);
+      color: #fff;
+      padding: 10px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      line-height: 1.3;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 180ms ease;
+      z-index: 40;
+      max-width: calc(100vw - 32px);
+      text-align: center;
+    }
+
+    #toast.show { opacity: 1; }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.78);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 18px 14px calc(18px + var(--safe-bottom));
+      z-index: 50;
+      pointer-events: auto;
+    }
+
+    .modal.show { display: flex; }
+
+    .modal-card {
+      width: min(100%, 480px);
+      background: rgba(16, 20, 30, 0.96);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 22px;
+      overflow: hidden;
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.36);
+    }
+
+    .modal-head {
+      padding: 14px 16px 8px;
+    }
+
+    .modal-head h2 {
+      margin: 0 0 6px;
+      font-size: 18px;
+    }
+
+    .modal-head p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .preview-wrap {
+      padding: 12px 16px 4px;
+    }
+
+    .preview-wrap img {
+      width: 100%;
+      aspect-ratio: 9 / 16;
+      object-fit: contain;
+      display: block;
+      background: #000;
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .share-text-box {
+      margin: 12px 16px 0;
+      padding: 12px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .modal-actions {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      padding: 16px;
+    }
+
+    .modal-button {
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+      border-radius: 16px;
+      padding: 12px 10px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .modal-button.primary {
+      background: rgba(76, 195, 255, 0.22);
+      border-color: rgba(76, 195, 255, 0.34);
+    }
+
+    .modal-button.warn {
+      background: rgba(255, 123, 138, 0.14);
+      border-color: rgba(255, 123, 138, 0.28);
     }
   </style>
 </head>
 <body>
-  <h2>WSSアドレスを入力</h2>
-  <div id="ctrl">
-    <input id="wssUrl" placeholder="wss://..." style="width: 300px;">
-    <button id="connectBtn" onclick="toggleConnection()">接続</button>
+  <div id="uiRoot">
+    <div class="topbar">
+      <div class="status-card">
+        <div class="status-title">状態</div>
+        <div class="status-value" id="statusText">ARを準備中…</div>
+        <div class="status-sub" id="detailText">
+          maker フォルダーにマーカー関連、model フォルダーにモデルを置く設計です。
+        </div>
+      </div>
+    </div>
+
+    <div class="control-stack left">
+      <button class="stack-button" id="modelPrevButton" type="button" aria-label="前のモデル">▲</button>
+      <div class="stack-label">
+        <span class="small">モデル</span>
+        <span class="main" id="modelLabel">未選択</span>
+      </div>
+      <button class="stack-button" id="modelNextButton" type="button" aria-label="次のモデル">▼</button>
+    </div>
+
+    <div class="control-stack right">
+      <button class="stack-button" id="scaleUpButton" type="button" aria-label="サイズアップ">▲</button>
+      <div class="stack-label">
+        <span class="small">サイズ</span>
+        <span class="main" id="scaleLabel">1.0x</span>
+      </div>
+      <button class="stack-button" id="scaleDownButton" type="button" aria-label="サイズダウン">▼</button>
+    </div>
+
+    <div id="helperPill">
+      左でモデル切替、右でサイズ変更。マーカー認識中のみ右下の撮影が有効になります。
+    </div>
+
+    <button id="captureButton" class="floating-button" type="button" aria-label="撮影" disabled>●</button>
+    <div id="toast"></div>
   </div>
-  <video id="remoteVideo" autoplay playsinline controls></video>
 
-<script>
-let pc = null, ws = null, clientId = null;
-let dataChannel = null, dcKeepAliveInterval = null;
-let wsPingInterval = null;
-let connected = false;
+  <div id="previewModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="previewTitle">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2 id="previewTitle">撮影プレビュー</h2>
+        <p>保存または共有を選べます。共有対応ブラウザでは画像と指定文を一緒に送れます。</p>
+      </div>
+      <div class="preview-wrap">
+        <img id="previewImage" alt="撮影プレビュー" />
+      </div>
+      <div class="share-text-box" id="shareTextPreview"></div>
+      <div class="modal-actions">
+        <button class="modal-button primary" id="saveButton" type="button">保存</button>
+        <button class="modal-button primary" id="shareButton" type="button">共有</button>
+        <button class="modal-button warn" id="closePreviewButton" type="button">閉じる</button>
+      </div>
+    </div>
+  </div>
 
-function createPeerConnection() {
-  const newPc = new RTCPeerConnection({
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
-  });
+  <a-scene
+    id="arScene"
+    mindar-image="imageTargetSrc: https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/band-example/band.mind;"
+    color-space="sRGB"
+    renderer="colorManagement: true, physicallyCorrectLights"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: false"
+    embedded
+  >
+    <a-assets id="assetStore"></a-assets>
+    <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+    <a-entity id="targetsRoot"></a-entity>
+  </a-scene>
 
-  newPc.ontrack = e => {
-    document.getElementById("remoteVideo").srcObject = e.streams[0];
-  };
-  newPc.onicecandidate = e => {
-    if (e.candidate && clientId !== null && ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "candidate", candidate: e.candidate, clientId }));
-    }
-  };
-
-  newPc.ondatachannel = (event) => {
-    dataChannel = event.channel;
-    dataChannel.onopen = () => {
-      dcKeepAliveInterval = setInterval(() => {
-        if (dataChannel.readyState === "open") {
-          dataChannel.send("keepalive");
-        }
-      }, 5000);
-
-      startSendingGamepadData();
-    };
-
-    dataChannel.onclose = () => {
-      if (dcKeepAliveInterval) clearInterval(dcKeepAliveInterval);
-      dcKeepAliveInterval = null;
-    };
-
-    dataChannel.onmessage = (e) => {};
-  };
-  return newPc;
-}
-
-function closePeerConnection() {
-  if (pc) {
-    pc.close();
-    pc = null;
-  }
-  if (dataChannel && dcKeepAliveInterval) {
-    clearInterval(dcKeepAliveInterval);
-    dcKeepAliveInterval = null;
-  }
-}
-
-function connect() {
-  const url = document.getElementById("wssUrl").value;
-  if (!/^wss:\/\/.+/.test(url)) {
-    alert("正しいWSSアドレスを入力してください");
-    return;
-  }
-  if (ws && ws.readyState === WebSocket.OPEN) ws.close();
-  closePeerConnection();
-
-  ws = new WebSocket(url);
-  pc = createPeerConnection();
-
-  ws.onopen = () => {
-    connected = true;
-    updateButton();
-    ws.send(JSON.stringify({ role: "client" }));
-  };
-
-  ws.onmessage = async ({ data }) => {
-    const msg = JSON.parse(data);
-
-    if (msg.type === "client-id") {
-      clientId = msg.clientId;
-      ws.send(JSON.stringify({ type: "request-offer", clientId }));
-    } else if (msg.type === "offer" && msg.clientId === clientId) {
-      await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      ws.send(JSON.stringify({ type: "answer", answer, clientId }));
-    } else if (msg.type === "candidate" && msg.clientId === clientId) {
-      await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-    }
-  };
-}
-
-function toggleConnection() {
-  if (connected) {
-    if (ws) ws.close();
-    closePeerConnection();
-    document.getElementById("remoteVideo").srcObject = null;
-    connected = false;
-  } else {
-    connect();
-  }
-  updateButton();
-}
-
-function updateButton() {
-  document.getElementById("connectBtn").textContent = connected ? "切断" : "接続";
-}
-
-function startSendingGamepadData() {
-  setInterval(() => {
-    const pads = navigator.getGamepads();
-    const pad = pads[0];
-
-    if (pad && dataChannel && dataChannel.readyState === "open") {
-      const state = {
-        type: "gamepad",
-        buttons: pad.buttons.map(b => b.pressed ? 1 : 0),
-        axes: pad.axes.map(a => Math.round(a * 32767)),
+  <script>
+    (function () {
+      const FALLBACK_CONFIG = {
+        appName: "AR名刺サイト スターター v2",
+        targetFile: "https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/band-example/band.mind",
+        shareText: "AR名刺サイトの写真です",
+        scale: { min: 0.1, max: 5.0, step: 0.1, default: 1.0 },
+        markers: [
+          {
+            id: "sample-raccoon",
+            name: "サンプルマーカー A",
+            targetIndex: 0,
+            models: [
+              { id: "cube-blue", name: "ブルーキューブ", type: "primitive", primitive: "box", position: "0 0.3 0", rotation: "0 45 0", scale: 0.35, color: "#4cc3ff", width: 0.45, height: 0.45, depth: 0.45 },
+              { id: "sphere-pink", name: "ピンクスフィア", type: "primitive", primitive: "sphere", position: "0 0.35 0", scale: 0.35, color: "#ff7bb7", radius: 0.25 }
+            ]
+          },
+          {
+            id: "sample-bear",
+            name: "サンプルマーカー B",
+            targetIndex: 1,
+            models: [
+              { id: "cylinder-gold", name: "ゴールドシリンダー", type: "primitive", primitive: "cylinder", position: "0 0.35 0", scale: 0.35, color: "#f6c453", radius: 0.18, height: 0.55 },
+              { id: "ring-green", name: "グリーンリング", type: "primitive", primitive: "ring", position: "0 0.25 0", rotation: "-90 0 0", scale: 0.55, color: "#65ff9f", radiusInner: 0.22, radiusOuter: 0.33 }
+            ]
+          }
+        ]
       };
-      console.log("Sending:", state); // ← 確認用
-      dataChannel.send(JSON.stringify(state));
-    } else {
-      console.log("pad[0] not found or inactive", pad);
-    }
-  }, 16);
-}
 
+      const CONFIG = window.APP_CONFIG || FALLBACK_CONFIG;
+      const sceneEl = document.getElementById("arScene");
+      const targetsRoot = document.getElementById("targetsRoot");
 
+      const statusText = document.getElementById("statusText");
+      const detailText = document.getElementById("detailText");
+      const modelLabel = document.getElementById("modelLabel");
+      const scaleLabel = document.getElementById("scaleLabel");
+      const helperPill = document.getElementById("helperPill");
 
-window.addEventListener("gamepadconnected", () => console.log("Gamepad connected"));
-window.addEventListener("gamepaddisconnected", () => console.log("Gamepad disconnected"));
+      const modelPrevButton = document.getElementById("modelPrevButton");
+      const modelNextButton = document.getElementById("modelNextButton");
+      const scaleUpButton = document.getElementById("scaleUpButton");
+      const scaleDownButton = document.getElementById("scaleDownButton");
+      const captureButton = document.getElementById("captureButton");
 
-const remoteVideo = document.getElementById("remoteVideo");
-remoteVideo.addEventListener('pause', () => remoteVideo.play());
+      const previewModal = document.getElementById("previewModal");
+      const previewImage = document.getElementById("previewImage");
+      const shareTextPreview = document.getElementById("shareTextPreview");
+      const saveButton = document.getElementById("saveButton");
+      const shareButton = document.getElementById("shareButton");
+      const closePreviewButton = document.getElementById("closePreviewButton");
+      const toast = document.getElementById("toast");
 
-</script>
+      const state = {
+        foundMarkers: new Set(),
+        activeMarkerId: null,
+        lastMarkerId: null,
+        modelIndexByMarker: {},
+        scaleByMarker: {},
+        modelElementsByMarker: {},
+        previewBlob: null,
+        previewUrl: ""
+      };
+
+      const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+      const normalizeScaleValue = (value) => {
+        const num = Number(value);
+        if (!Number.isFinite(num)) return CONFIG.scale.default;
+        const rounded = Math.round(num * 10) / 10;
+        return clamp(rounded, CONFIG.scale.min, CONFIG.scale.max);
+      };
+
+      const parseVector3 = (value, fallback = { x: 0, y: 0, z: 0 }) => {
+        if (typeof value === "number") return { x: value, y: value, z: value };
+        if (typeof value === "string") {
+          const parts = value.trim().split(/\s+/).map(Number);
+          if (parts.length === 3 && parts.every((n) => Number.isFinite(n))) {
+            return { x: parts[0], y: parts[1], z: parts[2] };
+          }
+        }
+        if (value && typeof value === "object") {
+          return {
+            x: Number.isFinite(value.x) ? Number(value.x) : fallback.x,
+            y: Number.isFinite(value.y) ? Number(value.y) : fallback.y,
+            z: Number.isFinite(value.z) ? Number(value.z) : fallback.z
+          };
+        }
+        return fallback;
+      };
+
+      const formatScale = (value) => `${normalizeScaleValue(value).toFixed(1)}x`;
+
+      const showToast = (message) => {
+        toast.textContent = message;
+        toast.classList.add("show");
+        clearTimeout(showToast._timer);
+        showToast._timer = setTimeout(() => toast.classList.remove("show"), 2200);
+      };
+
+      const getMarkerById = (markerId) => CONFIG.markers.find((marker) => marker.id === markerId);
+
+      const getUiMarkerId = () => {
+        if (state.activeMarkerId) return state.activeMarkerId;
+        if (state.lastMarkerId) return state.lastMarkerId;
+        return CONFIG.markers[0]?.id || null;
+      };
+
+      const getSelectedModelIndex = (markerId) => {
+        const marker = getMarkerById(markerId);
+        if (!marker || !marker.models.length) return 0;
+        const current = state.modelIndexByMarker[markerId] ?? 0;
+        return clamp(current, 0, marker.models.length - 1);
+      };
+
+      const getSelectedModel = (markerId) => {
+        const marker = getMarkerById(markerId);
+        if (!marker || !marker.models.length) return null;
+        return marker.models[getSelectedModelIndex(markerId)] || null;
+      };
+
+      const currentScaleForMarker = (markerId) => normalizeScaleValue(
+        state.scaleByMarker[markerId] ?? CONFIG.scale.default
+      );
+
+      const applyScaleToEntity = (entityEl, markerId, modelConfig) => {
+        const scaleFactor = currentScaleForMarker(markerId);
+        const baseScale = parseVector3(modelConfig.scale, { x: 1, y: 1, z: 1 });
+        const finalScale = {
+          x: baseScale.x * scaleFactor,
+          y: baseScale.y * scaleFactor,
+          z: baseScale.z * scaleFactor
+        };
+        entityEl.setAttribute("scale", `${finalScale.x} ${finalScale.y} ${finalScale.z}`);
+      };
+
+      const renderMarkerModelVisibility = (markerId) => {
+        const marker = getMarkerById(markerId);
+        const modelElements = state.modelElementsByMarker[markerId] || [];
+        const isFound = state.foundMarkers.has(markerId);
+        const selectedIndex = getSelectedModelIndex(markerId);
+
+        modelElements.forEach((el, index) => {
+          const visible = isFound && index === selectedIndex;
+          el.setAttribute("visible", visible ? "true" : "false");
+          if (visible && marker?.models[index]) {
+            applyScaleToEntity(el, markerId, marker.models[index]);
+          }
+        });
+      };
+
+      const renderAllModelVisibility = () => {
+        CONFIG.markers.forEach((marker) => renderMarkerModelVisibility(marker.id));
+      };
+
+      const updateCaptureAvailability = () => {
+        const enabled = state.foundMarkers.size > 0;
+        captureButton.disabled = !enabled;
+        captureButton.title = enabled ? "撮影" : "マーカー認識中のみ撮影できます";
+      };
+
+      const updateUi = () => {
+        const markerId = getUiMarkerId();
+        if (!markerId) {
+          statusText.textContent = "マーカー設定がありません";
+          detailText.textContent = "app-config.js に markers を追加してください。";
+          modelLabel.textContent = "未設定";
+          scaleLabel.textContent = formatScale(CONFIG.scale.default);
+          updateCaptureAvailability();
+          return;
+        }
+
+        const marker = getMarkerById(markerId);
+        const model = getSelectedModel(markerId);
+        const found = state.foundMarkers.has(markerId);
+
+        modelLabel.textContent = model?.name || "未設定";
+        scaleLabel.textContent = formatScale(currentScaleForMarker(markerId));
+
+        if (state.foundMarkers.size === 0) {
+          statusText.textContent = "マーカー待機中";
+          detailText.textContent = "カメラにマーカーを写してください。マーカー未認識中は撮影できません。";
+        } else {
+          statusText.textContent = `${marker?.name || "マーカー"} を認識中`;
+          detailText.textContent = [
+            `現在のモデル: ${model?.name || "未設定"}`,
+            `サイズ: ${formatScale(currentScaleForMarker(markerId))}`,
+            "撮影が有効です"
+          ].join(" / ");
+        }
+
+        helperPill.textContent = [
+          "maker にマーカー関連",
+          "model にモデル",
+          `操作対象: ${marker?.name || "未設定"}`
+        ].join(" / ");
+
+        updateCaptureAvailability();
+      };
+
+      const createPrimitiveElement = (modelConfig) => {
+        const primitiveName = String(modelConfig.primitive || "box").toLowerCase();
+        const tagNameMap = { box: "a-box", sphere: "a-sphere", cylinder: "a-cylinder", ring: "a-ring", plane: "a-plane" };
+        const tagName = tagNameMap[primitiveName] || "a-box";
+        const el = document.createElement(tagName);
+
+        if (modelConfig.color) el.setAttribute("color", modelConfig.color);
+        if (modelConfig.position) el.setAttribute("position", modelConfig.position);
+        if (modelConfig.rotation) el.setAttribute("rotation", modelConfig.rotation);
+
+        if (primitiveName === "box") {
+          el.setAttribute("width", modelConfig.width ?? 0.4);
+          el.setAttribute("height", modelConfig.height ?? 0.4);
+          el.setAttribute("depth", modelConfig.depth ?? 0.4);
+          el.setAttribute("animation", "property: rotation; to: 0 405 0; loop: true; dur: 5000; easing: linear");
+        } else if (primitiveName === "sphere") {
+          el.setAttribute("radius", modelConfig.radius ?? 0.24);
+          el.setAttribute("animation", "property: position; dir: alternate; dur: 1800; loop: true; to: 0 0.45 0");
+        } else if (primitiveName === "cylinder") {
+          el.setAttribute("radius", modelConfig.radius ?? 0.18);
+          el.setAttribute("height", modelConfig.height ?? 0.5);
+          el.setAttribute("animation", "property: rotation; to: 0 0 360; loop: true; dur: 4200; easing: linear");
+        } else if (primitiveName === "ring") {
+          el.setAttribute("radius-inner", modelConfig.radiusInner ?? 0.2);
+          el.setAttribute("radius-outer", modelConfig.radiusOuter ?? 0.3);
+          el.setAttribute("animation", "property: rotation; to: -90 0 360; loop: true; dur: 3800; easing: linear");
+        } else if (primitiveName === "plane") {
+          el.setAttribute("width", modelConfig.width ?? 0.8);
+          el.setAttribute("height", modelConfig.height ?? 0.5);
+        }
+
+        return el;
+      };
+
+      const createModelElement = (markerId, modelConfig) => {
+        let entityEl;
+
+        if (modelConfig.type === "gltf") {
+          entityEl = document.createElement("a-entity");
+          entityEl.setAttribute("gltf-model", `url(${modelConfig.src})`);
+          if (modelConfig.position) entityEl.setAttribute("position", modelConfig.position);
+          if (modelConfig.rotation) entityEl.setAttribute("rotation", modelConfig.rotation);
+          if (modelConfig.animationMixer !== false) entityEl.setAttribute("animation-mixer", "");
+        } else {
+          entityEl = createPrimitiveElement(modelConfig);
+        }
+
+        entityEl.setAttribute("visible", "false");
+        applyScaleToEntity(entityEl, markerId, modelConfig);
+        return entityEl;
+      };
+
+      const buildTargets = () => {
+        targetsRoot.innerHTML = "";
+        state.modelElementsByMarker = {};
+
+        CONFIG.markers.forEach((marker) => {
+          state.modelIndexByMarker[marker.id] = 0;
+          state.scaleByMarker[marker.id] = normalizeScaleValue(CONFIG.scale.default);
+
+          const targetEl = document.createElement("a-entity");
+          targetEl.id = `target-${marker.id}`;
+          targetEl.setAttribute("mindar-image-target", `targetIndex: ${marker.targetIndex}`);
+
+          const markerRoot = document.createElement("a-entity");
+          const modelElements = (marker.models || []).map((modelConfig) => {
+            const modelEl = createModelElement(marker.id, modelConfig);
+            markerRoot.appendChild(modelEl);
+            return modelEl;
+          });
+
+          targetEl.appendChild(markerRoot);
+          targetsRoot.appendChild(targetEl);
+
+          state.modelElementsByMarker[marker.id] = modelElements;
+
+          targetEl.addEventListener("targetFound", () => {
+            state.foundMarkers.add(marker.id);
+            state.activeMarkerId = marker.id;
+            state.lastMarkerId = marker.id;
+            renderAllModelVisibility();
+            updateUi();
+          });
+
+          targetEl.addEventListener("targetLost", () => {
+            state.foundMarkers.delete(marker.id);
+            if (state.activeMarkerId === marker.id) {
+              const remaining = Array.from(state.foundMarkers);
+              state.activeMarkerId = remaining.length ? remaining[remaining.length - 1] : null;
+            }
+            renderAllModelVisibility();
+            updateUi();
+          });
+        });
+      };
+
+      const shiftModel = (direction) => {
+        const markerId = getUiMarkerId();
+        const marker = getMarkerById(markerId);
+        if (!marker || !marker.models.length) {
+          showToast("モデルが設定されていません");
+          return;
+        }
+
+        const maxIndex = marker.models.length - 1;
+        const current = getSelectedModelIndex(markerId);
+        let next = current + direction;
+        if (next < 0) next = maxIndex;
+        if (next > maxIndex) next = 0;
+
+        state.modelIndexByMarker[markerId] = next;
+        renderMarkerModelVisibility(markerId);
+        updateUi();
+      };
+
+      const changeScale = (direction) => {
+        const markerId = getUiMarkerId();
+        if (!markerId) {
+          showToast("操作対象のマーカーがありません");
+          return;
+        }
+
+        const current = currentScaleForMarker(markerId);
+        const next = normalizeScaleValue(current + direction * CONFIG.scale.step);
+        state.scaleByMarker[markerId] = next;
+        renderMarkerModelVisibility(markerId);
+        updateUi();
+      };
+
+      const sceneScreenshotCanvas = () => {
+        const screenshotComponent = sceneEl.components.screenshot;
+        if (!screenshotComponent || !screenshotComponent.getCanvas) {
+          throw new Error("A-Frame screenshot component is not ready");
+        }
+        return screenshotComponent.getCanvas("perspective");
+      };
+
+      const captureCompositeBlob = async () => {
+        const video = document.querySelector("video");
+        if (!video || !video.videoWidth || !video.videoHeight) {
+          throw new Error("Camera video is not ready");
+        }
+
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const ratio = Math.min(window.devicePixelRatio || 1, 2);
+
+        const outputCanvas = document.createElement("canvas");
+        outputCanvas.width = Math.round(viewportWidth * ratio);
+        outputCanvas.height = Math.round(viewportHeight * ratio);
+
+        const ctx = outputCanvas.getContext("2d");
+        const style = window.getComputedStyle(video);
+
+        const displayWidth = parseFloat(style.getPropertyValue("width")) || viewportWidth;
+        const displayHeight = parseFloat(style.getPropertyValue("height")) || viewportHeight;
+        const displayLeft = parseFloat(style.getPropertyValue("left")) || 0;
+        const displayTop = parseFloat(style.getPropertyValue("top")) || 0;
+
+        const sourceX = Math.max(0, (-displayLeft) * video.videoWidth / displayWidth);
+        const sourceY = Math.max(0, (-displayTop) * video.videoHeight / displayHeight);
+        const sourceWidth = Math.min(video.videoWidth - sourceX, viewportWidth * video.videoWidth / displayWidth);
+        const sourceHeight = Math.min(video.videoHeight - sourceY, viewportHeight * video.videoHeight / displayHeight);
+
+        ctx.drawImage(video, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, outputCanvas.width, outputCanvas.height);
+
+        const arCanvas = sceneScreenshotCanvas();
+        ctx.drawImage(arCanvas, 0, 0, outputCanvas.width, outputCanvas.height);
+
+        return await new Promise((resolve, reject) => {
+          outputCanvas.toBlob((blob) => {
+            if (blob) resolve(blob);
+            else reject(new Error("Failed to create image blob"));
+          }, "image/png");
+        });
+      };
+
+      const fileNameForCapture = () => {
+        const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+        return `ar-capture-${stamp}.png`;
+      };
+
+      const openPreview = (blob) => {
+        if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
+        state.previewBlob = blob;
+        state.previewUrl = URL.createObjectURL(blob);
+        previewImage.src = state.previewUrl;
+        shareTextPreview.textContent = CONFIG.shareText || "";
+        previewModal.classList.add("show");
+      };
+
+      const closePreview = () => {
+        previewModal.classList.remove("show");
+      };
+
+      const savePreview = () => {
+        if (!state.previewBlob) return;
+        const a = document.createElement("a");
+        a.href = state.previewUrl;
+        a.download = fileNameForCapture();
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      };
+
+      const sharePreview = async () => {
+        if (!state.previewBlob) return;
+
+        const filename = fileNameForCapture();
+        const file = new File([state.previewBlob], filename, { type: "image/png" });
+
+        try {
+          if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({
+              title: CONFIG.appName || "AR Capture",
+              text: CONFIG.shareText || "",
+              files: [file]
+            });
+            return;
+          }
+
+          if (navigator.share) {
+            await navigator.share({
+              title: CONFIG.appName || "AR Capture",
+              text: CONFIG.shareText || ""
+            });
+            showToast("このブラウザでは写真付き共有に未対応のため、文面のみ共有しました");
+            return;
+          }
+
+          await navigator.clipboard.writeText(CONFIG.shareText || "");
+          showToast("共有API非対応のため、文面をコピーしました。画像は保存して共有してください");
+        } catch (error) {
+          if (error && error.name !== "AbortError") {
+            console.warn(error);
+            showToast("共有に失敗しました");
+          }
+        }
+      };
+
+      modelPrevButton.addEventListener("click", () => shiftModel(-1));
+      modelNextButton.addEventListener("click", () => shiftModel(1));
+      scaleUpButton.addEventListener("click", () => changeScale(1));
+      scaleDownButton.addEventListener("click", () => changeScale(-1));
+
+      captureButton.addEventListener("click", async () => {
+        if (state.foundMarkers.size === 0) {
+          showToast("マーカー認識中のみ撮影できます");
+          return;
+        }
+        try {
+          showToast("撮影中…");
+          const blob = await captureCompositeBlob();
+          openPreview(blob);
+        } catch (error) {
+          console.error(error);
+          showToast("撮影に失敗しました");
+        }
+      });
+
+      saveButton.addEventListener("click", savePreview);
+      shareButton.addEventListener("click", sharePreview);
+      closePreviewButton.addEventListener("click", closePreview);
+      previewModal.addEventListener("click", (event) => {
+        if (event.target === previewModal) closePreview();
+      });
+
+      sceneEl.setAttribute("mindar-image", `imageTargetSrc: ${CONFIG.targetFile};`);
+      buildTargets();
+      updateUi();
+
+      sceneEl.addEventListener("arReady", () => {
+        statusText.textContent = "AR準備完了";
+        detailText.textContent = "マーカーをカメラに写してください。認識中のみ撮影ボタンが有効になります。";
+        updateUi();
+      });
+
+      sceneEl.addEventListener("arError", () => {
+        statusText.textContent = "AR起動エラー";
+        detailText.textContent = "カメラ権限や HTTPS 配信、maker/targets.mind のパスを確認してください。";
+        updateUi();
+      });
+    })();
+  </script>
 </body>
 </html>
