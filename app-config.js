@@ -5,7 +5,8 @@ window.APP_CONFIG = {
   // 自分のマーカーを使うときは "./maker/targets.mind" に変更してください。
   targetFile: "https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/band-example/band.mind",
 
-  // 写真共有時に添える文章
+  // 共通の共有文
+  // 各マーカーに shareText がある場合はそちらが優先されます。
   shareText: "AR名刺サイトの写真です\n#WebAR #AR名刺",
 
   scale: {
@@ -22,6 +23,7 @@ window.APP_CONFIG = {
       id: "sample-raccoon",
       name: "サンプルマーカー A",
       targetIndex: 0,
+      shareText: "サンプルマーカー A のAR写真です\n#WebAR #AR名刺 #MarkerA",
       models: [
         {
           id: "cube-blue",
@@ -65,6 +67,7 @@ window.APP_CONFIG = {
       id: "sample-bear",
       name: "サンプルマーカー B",
       targetIndex: 1,
+      shareText: "サンプルマーカー B のAR写真です\n#WebAR #AR名刺 #MarkerB",
       models: [
         {
           id: "cylinder-gold",

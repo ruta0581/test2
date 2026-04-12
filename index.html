@@ -438,7 +438,9 @@
         scaleByMarker: {},
         modelElementsByMarker: {},
         previewBlob: null,
-        previewUrl: ""
+        previewUrl: "",
+        previewMarkerId: null,
+        previewShareText: ""
       };
 
       const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -478,6 +480,11 @@
       };
 
       const getMarkerById = (markerId) => CONFIG.markers.find((marker) => marker.id === markerId);
+
+      const getShareTextForMarker = (markerId) => {
+        const marker = getMarkerById(markerId);
+        return marker?.shareText || CONFIG.shareText || "";
+      };
 
       const getUiMarkerId = () => {
         if (state.activeMarkerId) return state.activeMarkerId;
@@ -571,7 +578,8 @@
         helperPill.textContent = [
           "maker にマーカー関連",
           "model にモデル",
-          `操作対象: ${marker?.name || "未設定"}`
+          `操作対象: ${marker?.name || "未設定"}`,
+          `共有文: ${getShareTextForMarker(markerId) || "未設定"}`
         ].join(" / ");
 
         updateCaptureAvailability();
@@ -760,11 +768,13 @@
       };
 
       const openPreview = (blob) => {
+        state.previewMarkerId = state.activeMarkerId || state.lastMarkerId || getUiMarkerId();
         if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
         state.previewBlob = blob;
         state.previewUrl = URL.createObjectURL(blob);
         previewImage.src = state.previewUrl;
-        shareTextPreview.textContent = CONFIG.shareText || "";
+        state.previewShareText = getShareTextForMarker(state.previewMarkerId || getUiMarkerId());
+        shareTextPreview.textContent = state.previewShareText || "";
         previewModal.classList.add("show");
       };
 
@@ -792,7 +802,7 @@
           if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
             await navigator.share({
               title: CONFIG.appName || "AR Capture",
-              text: CONFIG.shareText || "",
+              text: state.previewShareText || getShareTextForMarker(state.previewMarkerId),
               files: [file]
             });
             return;
@@ -801,13 +811,13 @@
           if (navigator.share) {
             await navigator.share({
               title: CONFIG.appName || "AR Capture",
-              text: CONFIG.shareText || ""
+              text: state.previewShareText || getShareTextForMarker(state.previewMarkerId)
             });
             showToast("このブラウザでは写真付き共有に未対応のため、文面のみ共有しました");
             return;
           }
 
-          await navigator.clipboard.writeText(CONFIG.shareText || "");
+          await navigator.clipboard.writeText(state.previewShareText || getShareTextForMarker(state.previewMarkerId));
           showToast("共有API非対応のため、文面をコピーしました。画像は保存して共有してください");
         } catch (error) {
           if (error && error.name !== "AbortError") {

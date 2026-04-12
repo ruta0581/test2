@@ -54,3 +54,31 @@
 マーカー認識時:
 - 撮影ボタンが有効
 - プレビューから保存と共有が可能
+
+
+## マーカーごとの共有文
+
+各マーカーごとに `shareText` を設定できます。  
+撮影後のプレビューと共有時の文面は、撮影したマーカーの `shareText` を使います。  
+そのマーカーに `shareText` がない場合だけ、共通の `shareText` を使います。
+
+```js
+{
+  id: "business-card-main",
+  name: "名刺メイン",
+  targetIndex: 2,
+  shareText: "名刺メインのAR写真です\n#WebAR #AR名刺",
+  models: [
+    {
+      id: "dragon-model",
+      name: "ドラゴンモデル",
+      type: "gltf",
+      src: "./model/dragon.glb",
+      position: "0 0 0",
+      rotation: "0 180 0",
+      scale: 0.6,
+      animationMixer: true
+    }
+  ]
+}
+```
