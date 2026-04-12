@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <title>AR名刺サイト スターター v2</title>
+  <title>AR名刺サイト スターター v4</title>
 
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
@@ -56,7 +56,8 @@
       pointer-events: none;
     }
 
-    .status-card {
+    .status-card,
+    .debug-card {
       background: var(--panel-bg);
       border: 1px solid var(--panel-border);
       border-radius: 18px;
@@ -65,8 +66,9 @@
       box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
     }
 
-    .status-title {
-      font-size: 14px;
+    .status-title,
+    .debug-title {
+      font-size: 12px;
       color: var(--muted);
       margin: 0 0 4px;
     }
@@ -78,31 +80,40 @@
       line-height: 1.2;
     }
 
-    .status-sub {
-      margin-top: 8px;
+    .debug-content {
+      margin: 0;
       font-size: 13px;
       color: var(--muted);
-      line-height: 1.45;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .bottom-controls {
+      position: fixed;
+      left: 12px;
+      right: 12px;
+      bottom: calc(12px + var(--safe-bottom));
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 12px;
+      align-items: end;
+      pointer-events: none;
     }
 
     .control-stack {
-      position: fixed;
-      top: 50%;
-      transform: translateY(-50%);
       display: grid;
+      justify-items: center;
       gap: 10px;
       pointer-events: auto;
     }
-
-    .control-stack.left { left: 12px; }
-    .control-stack.right { right: 12px; }
 
     .stack-label {
       background: var(--panel-bg);
       border: 1px solid var(--panel-border);
       border-radius: 16px;
       padding: 10px 12px;
-      min-width: 94px;
+      min-width: 96px;
       text-align: center;
       backdrop-filter: blur(8px);
       box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
@@ -152,7 +163,6 @@
     }
 
     .floating-button {
-      position: fixed;
       border: 1px solid var(--panel-border);
       background: var(--panel-bg);
       color: #fff;
@@ -162,9 +172,27 @@
       cursor: pointer;
     }
 
+    #captureWrap {
+      display: grid;
+      justify-items: center;
+      gap: 10px;
+      pointer-events: auto;
+    }
+
+    #captureHint {
+      min-width: 96px;
+      text-align: center;
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 16px;
+      padding: 10px 12px;
+      font-size: 12px;
+      color: var(--muted);
+      backdrop-filter: blur(8px);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+    }
+
     #captureButton {
-      right: 12px;
-      bottom: calc(12px + var(--safe-bottom));
       width: 74px;
       height: 74px;
       border-radius: 999px;
@@ -172,30 +200,10 @@
       font-weight: 900;
     }
 
-    #helperPill {
-      position: fixed;
-      left: 12px;
-      right: 96px;
-      bottom: calc(12px + var(--safe-bottom));
-      min-height: 56px;
-      display: flex;
-      align-items: center;
-      padding: 10px 12px;
-      border-radius: 18px;
-      border: 1px solid var(--panel-border);
-      background: var(--panel-bg);
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1.45;
-      backdrop-filter: blur(8px);
-      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
-      pointer-events: none;
-    }
-
     #toast {
       position: fixed;
       left: 50%;
-      bottom: calc(96px + var(--safe-bottom));
+      bottom: calc(122px + var(--safe-bottom));
       transform: translateX(-50%);
       background: rgba(0, 0, 0, 0.82);
       color: #fff;
@@ -313,35 +321,39 @@
       <div class="status-card">
         <div class="status-title">状態</div>
         <div class="status-value" id="statusText">ARを準備中…</div>
-        <div class="status-sub" id="detailText">
-          maker フォルダーにマーカー関連、model フォルダーにモデルを置く設計です。
+      </div>
+
+      <div class="debug-card" id="debugCard">
+        <div class="debug-title">デバッグ情報</div>
+        <div class="debug-content" id="debugText">読み込み中…</div>
+      </div>
+    </div>
+
+    <div class="bottom-controls">
+      <div class="control-stack">
+        <button class="stack-button" id="modelPrevButton" type="button" aria-label="前のモデル">▲</button>
+        <div class="stack-label">
+          <span class="small">モデル</span>
+          <span class="main" id="modelLabel">未選択</span>
         </div>
+        <button class="stack-button" id="modelNextButton" type="button" aria-label="次のモデル">▼</button>
+      </div>
+
+      <div id="captureWrap">
+        <div id="captureHint">撮影</div>
+        <button id="captureButton" class="floating-button" type="button" aria-label="撮影" disabled>●</button>
+      </div>
+
+      <div class="control-stack">
+        <button class="stack-button" id="scaleUpButton" type="button" aria-label="サイズアップ">▲</button>
+        <div class="stack-label">
+          <span class="small">サイズ</span>
+          <span class="main" id="scaleLabel">1.0x</span>
+        </div>
+        <button class="stack-button" id="scaleDownButton" type="button" aria-label="サイズダウン">▼</button>
       </div>
     </div>
 
-    <div class="control-stack left">
-      <button class="stack-button" id="modelPrevButton" type="button" aria-label="前のモデル">▲</button>
-      <div class="stack-label">
-        <span class="small">モデル</span>
-        <span class="main" id="modelLabel">未選択</span>
-      </div>
-      <button class="stack-button" id="modelNextButton" type="button" aria-label="次のモデル">▼</button>
-    </div>
-
-    <div class="control-stack right">
-      <button class="stack-button" id="scaleUpButton" type="button" aria-label="サイズアップ">▲</button>
-      <div class="stack-label">
-        <span class="small">サイズ</span>
-        <span class="main" id="scaleLabel">1.0x</span>
-      </div>
-      <button class="stack-button" id="scaleDownButton" type="button" aria-label="サイズダウン">▼</button>
-    </div>
-
-    <div id="helperPill">
-      左でモデル切替、右でサイズ変更。マーカー認識中のみ右下の撮影が有効になります。
-    </div>
-
-    <button id="captureButton" class="floating-button" type="button" aria-label="撮影" disabled>●</button>
     <div id="toast"></div>
   </div>
 
@@ -380,15 +392,19 @@
   <script>
     (function () {
       const FALLBACK_CONFIG = {
-        appName: "AR名刺サイト スターター v2",
+        appName: "AR名刺サイト スターター v4",
         targetFile: "https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/band-example/band.mind",
         shareText: "AR名刺サイトの写真です",
+        ui: {
+          showDebugInfo: true
+        },
         scale: { min: 0.1, max: 5.0, step: 0.1, default: 1.0 },
         markers: [
           {
             id: "sample-raccoon",
             name: "サンプルマーカー A",
             targetIndex: 0,
+            shareText: "サンプルマーカー A のAR写真です",
             models: [
               { id: "cube-blue", name: "ブルーキューブ", type: "primitive", primitive: "box", position: "0 0.3 0", rotation: "0 45 0", scale: 0.35, color: "#4cc3ff", width: 0.45, height: 0.45, depth: 0.45 },
               { id: "sphere-pink", name: "ピンクスフィア", type: "primitive", primitive: "sphere", position: "0 0.35 0", scale: 0.35, color: "#ff7bb7", radius: 0.25 }
@@ -398,6 +414,7 @@
             id: "sample-bear",
             name: "サンプルマーカー B",
             targetIndex: 1,
+            shareText: "サンプルマーカー B のAR写真です",
             models: [
               { id: "cylinder-gold", name: "ゴールドシリンダー", type: "primitive", primitive: "cylinder", position: "0 0.35 0", scale: 0.35, color: "#f6c453", radius: 0.18, height: 0.55 },
               { id: "ring-green", name: "グリーンリング", type: "primitive", primitive: "ring", position: "0 0.25 0", rotation: "-90 0 0", scale: 0.55, color: "#65ff9f", radiusInner: 0.22, radiusOuter: 0.33 }
@@ -407,14 +424,20 @@
       };
 
       const CONFIG = window.APP_CONFIG || FALLBACK_CONFIG;
+      CONFIG.ui = CONFIG.ui || {};
+      if (typeof CONFIG.ui.showDebugInfo !== "boolean") {
+        CONFIG.ui.showDebugInfo = true;
+      }
+
       const sceneEl = document.getElementById("arScene");
       const targetsRoot = document.getElementById("targetsRoot");
 
       const statusText = document.getElementById("statusText");
-      const detailText = document.getElementById("detailText");
+      const debugCard = document.getElementById("debugCard");
+      const debugText = document.getElementById("debugText");
       const modelLabel = document.getElementById("modelLabel");
       const scaleLabel = document.getElementById("scaleLabel");
-      const helperPill = document.getElementById("helperPill");
+      const captureHint = document.getElementById("captureHint");
 
       const modelPrevButton = document.getElementById("modelPrevButton");
       const modelNextButton = document.getElementById("modelNextButton");
@@ -543,46 +566,54 @@
         const enabled = state.foundMarkers.size > 0;
         captureButton.disabled = !enabled;
         captureButton.title = enabled ? "撮影" : "マーカー認識中のみ撮影できます";
+        captureHint.textContent = enabled ? "撮影" : "待機中";
+      };
+
+      const renderDebug = () => {
+        debugCard.style.display = CONFIG.ui.showDebugInfo ? "block" : "none";
+        if (!CONFIG.ui.showDebugInfo) return;
+
+        const markerId = getUiMarkerId();
+        const marker = getMarkerById(markerId);
+        const model = getSelectedModel(markerId);
+        const lines = [
+          `操作対象: ${marker?.name || "未設定"}`,
+          `現在モデル: ${model?.name || "未設定"}`,
+          `サイズ: ${formatScale(currentScaleForMarker(markerId || ""))}`,
+          `共有文: ${getShareTextForMarker(markerId) || "未設定"}`,
+          `targetFile: ${CONFIG.targetFile || "未設定"}`,
+          `maker: ./maker`,
+          `model: ./model`,
+          `認識中マーカー数: ${state.foundMarkers.size}`
+        ];
+        debugText.textContent = lines.join("\n");
       };
 
       const updateUi = () => {
         const markerId = getUiMarkerId();
         if (!markerId) {
-          statusText.textContent = "マーカー設定がありません";
-          detailText.textContent = "app-config.js に markers を追加してください。";
+          statusText.textContent = "マーカー待機中";
           modelLabel.textContent = "未設定";
           scaleLabel.textContent = formatScale(CONFIG.scale.default);
           updateCaptureAvailability();
+          renderDebug();
           return;
         }
 
         const marker = getMarkerById(markerId);
         const model = getSelectedModel(markerId);
-        const found = state.foundMarkers.has(markerId);
 
         modelLabel.textContent = model?.name || "未設定";
         scaleLabel.textContent = formatScale(currentScaleForMarker(markerId));
 
         if (state.foundMarkers.size === 0) {
           statusText.textContent = "マーカー待機中";
-          detailText.textContent = "カメラにマーカーを写してください。マーカー未認識中は撮影できません。";
         } else {
-          statusText.textContent = `${marker?.name || "マーカー"} を認識中`;
-          detailText.textContent = [
-            `現在のモデル: ${model?.name || "未設定"}`,
-            `サイズ: ${formatScale(currentScaleForMarker(markerId))}`,
-            "撮影が有効です"
-          ].join(" / ");
+          statusText.textContent = `${marker?.name || "マーカー"} 認識中`;
         }
 
-        helperPill.textContent = [
-          "maker にマーカー関連",
-          "model にモデル",
-          `操作対象: ${marker?.name || "未設定"}`,
-          `共有文: ${getShareTextForMarker(markerId) || "未設定"}`
-        ].join(" / ");
-
         updateCaptureAvailability();
+        renderDebug();
       };
 
       const createPrimitiveElement = (modelConfig) => {
@@ -773,7 +804,7 @@
         state.previewBlob = blob;
         state.previewUrl = URL.createObjectURL(blob);
         previewImage.src = state.previewUrl;
-        state.previewShareText = getShareTextForMarker(state.previewMarkerId || getUiMarkerId());
+        state.previewShareText = getShareTextForMarker(state.previewMarkerId);
         shareTextPreview.textContent = state.previewShareText || "";
         previewModal.classList.add("show");
       };
@@ -859,15 +890,13 @@
       updateUi();
 
       sceneEl.addEventListener("arReady", () => {
-        statusText.textContent = "AR準備完了";
-        detailText.textContent = "マーカーをカメラに写してください。認識中のみ撮影ボタンが有効になります。";
+        statusText.textContent = "マーカー待機中";
         updateUi();
       });
 
       sceneEl.addEventListener("arError", () => {
         statusText.textContent = "AR起動エラー";
-        detailText.textContent = "カメラ権限や HTTPS 配信、maker/targets.mind のパスを確認してください。";
-        updateUi();
+        renderDebug();
       });
     })();
   </script>

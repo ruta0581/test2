@@ -1,5 +1,5 @@
 window.APP_CONFIG = {
-  appName: "AR名刺サイト スターター v2",
+  appName: "AR名刺サイト スターター v4",
 
   // 開発中は公式サンプルを使っています。
   // 自分のマーカーを使うときは "./maker/targets.mind" に変更してください。
@@ -8,6 +8,13 @@ window.APP_CONFIG = {
   // 共通の共有文
   // 各マーカーに shareText がある場合はそちらが優先されます。
   shareText: "AR名刺サイトの写真です\n#WebAR #AR名刺",
+
+  // 画面表示設定
+  ui: {
+    // true で上部のデバッグ情報を表示
+    // false で非表示
+    showDebugInfo: true
+  },
 
   scale: {
     min: 0.1,
