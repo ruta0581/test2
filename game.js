@@ -39,7 +39,7 @@
   ];
 
   function newCell(color = 0) {
-    return { color, state: 0, timer: 0, panelFlags: 0, pop: false, popOrder: 0, presented: false };
+    return { color, state: 0, timer: 0, panelFlags: 0, pop: false, popOrder: 0, presented: false, fallFromRow: -1, fallMoveFrame: -1 };
   }
 
   function hashSeed(text) {
@@ -282,6 +282,12 @@
             if (cell.timer > 0) continue;
           }
           if (!this.board[r+1][c].color) {
+            // $82:DC5E: one full logical row per gameplay update once the
+            // initial 12/9/6-update hold has elapsed. Keep the logical move
+            // exact, but remember the source row so Canvas can interpolate
+            // between the two row positions instead of visually teleporting.
+            cell.fallFromRow = r;
+            cell.fallMoveFrame = this.frame;
             this.board[r+1][c] = cell;
             this.board[r][c] = newCell();
           } else {
@@ -508,13 +514,34 @@
       }
     }
 
-    topOutCheck() {
-      if (this.commonLock()) return;
-      if (this.board[0].some(cell => cell.color && !(cell.state & ST_GRAVITY))) {
-        this.gameOver=true;
-        this.message='GAME OVER'; this.messageTimer=999999;
-        this.sound.over();
+    boardHasResolvingBits() {
+      // $86:C4CA: any resolving/transitional state in mask $03F0 suppresses
+      // lethal top-out for this update. Normal 1P Endless has no special
+      // metadata protection in this Web build, so the remaining rule is the
+      // logical top row + resolving-state suppression.
+      for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) {
+        if (this.board[r][c].state & 0x03F0) return true;
       }
+      return false;
+    }
+
+    topOutCheck() {
+      // $82:A24A: do not inspect the top row while clear/gravity/swap work is
+      // active. There is no independent grace countdown in ordinary Endless.
+      if (this.commonLock()) return;
+
+      // The game-over line is the logical top row itself (row 0), i.e. the
+      // upper edge of the 6x12 board. A gravity-active top cell is temporarily
+      // non-lethal while it is resolving.
+      const lethal = this.board[0].some(cell => cell.color && !(cell.state & ST_GRAVITY));
+      if (!lethal) return;
+
+      // $86:C4CA can still suppress top-out if any board transition remains.
+      if (this.boardHasResolvingBits()) return;
+
+      this.gameOver=true;
+      this.message='GAME OVER'; this.messageTimer=999999;
+      this.sound.over();
     }
 
     update(input) {
@@ -577,8 +604,9 @@
       ctx.restore();
     }
 
-    render() {
+    render(interp=1) {
       const ctx=this.ctx;
+      const fallInterp=Math.max(0,Math.min(1,interp));
       const W=this.canvas.width,H=this.canvas.height;
       ctx.clearRect(0,0,W,H);
       drawBackdrop(ctx,W,H,this.frame);
@@ -596,7 +624,11 @@
       }
       for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) {
         const cell=this.board[r][c]; if(!cell.color || cell.presented) continue;
-        let x=BOARD_X+c*CELL, y=BOARD_Y+r*CELL-rise;
+        let renderRow=r;
+        if (cell.fallMoveFrame===this.frame && cell.fallFromRow>=0) {
+          renderRow=cell.fallFromRow+(r-cell.fallFromRow)*fallInterp;
+        }
+        let x=BOARD_X+c*CELL, y=BOARD_Y+renderRow*CELL-rise;
         if (this.swapActive && this.swapPair && this.swapPair.r===r && (c===this.swapPair.c || c===this.swapPair.c+1)) {
           const t=(4-this.swapCounter)/4;
           const ease=1-Math.pow(1-Math.min(1,t),3);
@@ -613,10 +645,12 @@
       }
       ctx.restore();
 
-      // Board border & danger line.
+      // Board border & game-over line. In the original Endless logic the
+      // lethal line is the logical top row, so draw it on the board's upper
+      // edge rather than one cell below it.
       ctx.strokeStyle='rgba(255,255,255,.88)'; ctx.lineWidth=3; roundRect(ctx,BOARD_X-4,BOARD_Y-4,BOARD_W+8,BOARD_H+8,12); ctx.stroke();
-      ctx.strokeStyle='rgba(255,95,115,.75)'; ctx.lineWidth=2; ctx.setLineDash([8,6]);
-      ctx.beginPath(); ctx.moveTo(BOARD_X,BOARD_Y+CELL); ctx.lineTo(BOARD_X+BOARD_W,BOARD_Y+CELL); ctx.stroke(); ctx.setLineDash([]);
+      ctx.strokeStyle='rgba(255,95,115,.9)'; ctx.lineWidth=3; ctx.setLineDash([8,6]);
+      ctx.beginPath(); ctx.moveTo(BOARD_X,BOARD_Y); ctx.lineTo(BOARD_X+BOARD_W,BOARD_Y); ctx.stroke(); ctx.setLineDash([]);
 
       // Cursor moves with the scrolling stack.
       const cx=BOARD_X+this.cursorCol*CELL;
@@ -799,7 +833,7 @@
   function loop(now) {
     acc=Math.min(acc+(now-last),250);last=now;
     while(acc>=step){game.update(input);input.swapPressed=false;acc-=step;}
-    game.render();
+    game.render(acc/step);
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
