@@ -29,3 +29,9 @@
 
 ## Web向け置換
 SNESのPPU/OAM/DMA、演出VM、SPC700音声は使わず、Canvas 2DとWeb Audioの新規素材に置き換えています。
+
+## v5 timing / falling fixes
+
+- Falling panels still use the recovered logic timing: initial hold 12 / 9 / 6 updates by GAME LV., then one logical row per 60 Hz gameplay update.
+- Canvas interpolation now stops immediately when a horizontally-swapped panel becomes support underneath a falling panel, preventing the falling panel from appearing to float one cell above its logical support.
+- The recovered `clearPre`, `clearWait`, and `clearStep` values are unchanged. The supplied board model explicitly leaves the pre-clear presentation-helper gate unresolved, so the web presentation adds a 60-update (~1 second) lead-in before the confirmed clear timers to match the observed original clear duration more closely.

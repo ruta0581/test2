@@ -22,6 +22,13 @@
     { colors: 6, clearPre: 14, clearWait: 12, clearStep: 6, fallHold: 6, rowRule: 2 },
   ];
 
+  // The gameplay decompile gives the 22/18/14 pre timer, 22/17/12 wait,
+  // and 8/7/6 per-panel presentation cadence, but the board-model notes that
+  // the presentation helper gating the pre-clear phase is not fully recovered.
+  // Keep the confirmed gameplay timers untouched and add the observed ~1 s
+  // presentation lead-in here so visible clears match the original more closely.
+  const CLEAR_PRESENTATION_LEAD_IN = 60;
+
   const COMBO_BONUS = [
     0,0,0,0,20,30,50,60,70,80,100,140,170,210,250,290,
     340,390,440,490,550,610,680,750,820,900,980,1060,1150,1240,1330,
@@ -361,7 +368,7 @@
     allocateClearEvent(match) {
       if (!match.any) return;
       const e = {
-        active:true, state:0, pre:this.cfg.clearPre, wait:0, step:0,
+        active:true, state:0, lead:CLEAR_PRESENTATION_LEAD_IN, pre:this.cfg.clearPre, wait:0, step:0,
         presentIndex:0, matchedCount:Math.min(35, match.count), cells:match.cells.slice(0,35),
       };
       this.clearEvents.push(e);
@@ -418,6 +425,10 @@
         if (e.state===0) { e.pre=this.cfg.clearPre; e.state=1; continue; }
         if (e.state===1) { e.state=2; continue; }
         if (e.state===2) {
+          // The recovered gameplay timers start after a presentation helper whose
+          // exact gate is outside the rule-level decompile. Preserve that missing
+          // lead-in explicitly instead of altering the confirmed cfg.clearPre value.
+          if (e.lead>0) { e.lead--; continue; }
           if (e.pre>0) e.pre--;
           if (e.pre===0) { e.wait=this.cfg.clearWait; e.state=3; }
           continue;
@@ -586,6 +597,19 @@
 
     riseOffset() { return 16 - this.risePixelsLeft; }
 
+    panelRenderRow(r, c, cell, interp=1) {
+      // Logic moves one full row per 60 Hz update after the initial fall hold.
+      // We only interpolate while the panel still has empty space below. If a
+      // panel is swapped horizontally underneath during this same update, that
+      // cell is already solid logically; rendering from the previous row would
+      // leave a visible one-cell air gap. Snap to the logical landing row then.
+      if (cell.fallMoveFrame !== this.frame || cell.fallFromRow < 0) return r;
+      const supportedNow = r >= ROWS - 1 || !!this.board[r+1][c].color;
+      if (supportedNow) return r;
+      const t = Math.max(0, Math.min(1, interp));
+      return cell.fallFromRow + (r - cell.fallFromRow) * t;
+    }
+
     drawPanel(ctx, x, y, colorId, scale=1, alpha=1, pop=false) {
       if (!colorId) return;
       const [c1,c2]=PANEL_COLORS[colorId];
@@ -624,10 +648,7 @@
       }
       for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) {
         const cell=this.board[r][c]; if(!cell.color || cell.presented) continue;
-        let renderRow=r;
-        if (cell.fallMoveFrame===this.frame && cell.fallFromRow>=0) {
-          renderRow=cell.fallFromRow+(r-cell.fallFromRow)*fallInterp;
-        }
+        const renderRow=this.panelRenderRow(r,c,cell,fallInterp);
         let x=BOARD_X+c*CELL, y=BOARD_Y+renderRow*CELL-rise;
         if (this.swapActive && this.swapPair && this.swapPair.r===r && (c===this.swapPair.c || c===this.swapPair.c+1)) {
           const t=(4-this.swapCounter)/4;

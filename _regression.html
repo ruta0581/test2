@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0b0d22">
+<title>Endless Panel Puzzle — Web Rebuild</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="shell">
+  <header class="topbar">
+    <div class="brand">ENDLESS PANEL PUZZLE<small>decompile-based browser rebuild / original web visuals</small></div>
+    <div class="actions">
+      <button id="pauseBtn">PAUSE</button>
+      <button id="soundBtn">SOUND: ON</button>
+      <button id="restartBtn">NEW GAME</button>
+    </div>
+  </header>
+  <section class="layout">
+    <div class="stage"><canvas id="game" width="700" height="640" aria-label="Endless panel puzzle game"></canvas></div>
+    <aside class="panel start" id="startPanel">
+      <h2>GAME SETUP</h2>
+      <div class="fields">
+        <div class="field"><label for="gameLevel">GAME LV.</label><select id="gameLevel"><option value="1">1 — 5 colors</option><option value="2">2 — 6 colors</option><option value="3">3 — 6 colors / faster resolve</option></select></div>
+        <div class="field"><label for="speedLevel">START SPEED LV. (1–99)</label><input id="speedLevel" type="number" min="1" max="99" value="1"></div>
+        <div class="field"><label for="seed">SEED (optional)</label><input id="seed" type="text" placeholder="blank = random"></div>
+      </div>
+      <button class="primary" id="startBtn">START</button>
+      <p class="note">操作: 矢印でカーソル、Z/X/Spaceで交換、Shift/C/Q長押しで手動せり上げ。手動せり上げ開始時は+1点です。</p>
+    </aside>
+  </section>
+  <section class="controls" aria-label="touch controls">
+    <div class="dpad"><button class="up" data-action="up">▲</button><button class="left" data-action="left">◀</button><button class="down" data-action="down">▼</button><button class="right" data-action="right">▶</button></div>
+    <div class="ab"><button class="raise" data-action="raise">RAISE</button><button class="swap" data-action="swap">SWAP</button></div>
+  </section>
+  <div class="source-note">Game-rule implementation is based on the supplied Endless decompile/tables. Visuals and sounds in this build are newly created for the web version.</div>
+</main>
+<script src="data.js"></script>
+<script src="game.js"></script>
+<script>
+window.addEventListener('load',()=>{
+  const g=window.__endlessGame; const out={};
+  function blank(){ for(let r=0;r<12;r++) for(let c=0;c<6;c++){ const x=g.board[r][c]; x.color=0;x.state=0;x.timer=0;x.panelFlags=0;x.presented=false;x.fallFromRow=-1;x.fallMoveFrame=-1; } g.clearEvents=[];g.gravityActive=false;g.swapActive=false;g.gameOver=false; }
+  g.reset(0,1,'regression'); blank(); g.started=true;
+  const p=g.board[5][0]; p.color=1;p.state=0x40;p.timer=12;
+  for(let i=0;i<11;i++){g.frame++;g.updateGravity();}
+  out.hold11=(g.board[5][0].color===1 && g.board[5][0].timer===1);
+  g.frame++;g.updateGravity();
+  out.move12=(g.board[6][0].color===1 && g.board[6][0].timer===0 && g.board[6][0].fallFromRow===5);
+  g.frame++;g.updateGravity();
+  out.move13=(g.board[7][0].color===1);
+  blank(); g.board[0][2].color=2; g.topOutCheck(); out.topRowLethal=g.gameOver;
+  blank(); g.board[0][2].color=2; g.board[4][1].color=3; g.board[4][1].state=0x10; g.topOutCheck(); out.resolvingSuppress=!g.gameOver;
+  blank(); g.board[1][2].color=2; g.topOutCheck(); out.secondRowSafe=!g.gameOver;
+
+  // Falling render must not trail one row behind when a panel is swapped in
+  // underneath during the same gameplay update.
+  blank();
+  g.frame=100;
+  const falling=g.board[6][2]; falling.color=1; falling.state=0x40; falling.fallFromRow=5; falling.fallMoveFrame=100;
+  out.fallInterpolatesWhenFree=(Math.abs(g.panelRenderRow(6,2,falling,0.25)-5.25)<1e-9);
+  g.board[7][2].color=3;
+  out.fallSnapsToSupport=(g.panelRenderRow(6,2,falling,0.25)===6);
+
+  // GAME LV. 0: state INIT + BEGIN + 60 presentation lead-in + pre 22 +
+  // wait 22 means the first per-panel presentation occurs on update 107.
+  blank(); g.sound.enabled=false; g.gameLevel=0; g.cfg={colors:5,clearPre:22,clearWait:22,clearStep:8,fallHold:12,rowRule:0};
+  for(let c=0;c<3;c++){g.board[8][c].color=1;g.board[8][c].state=0x10;}
+  g.allocateClearEvent({any:true,count:3,cells:[{r:8,c:0},{r:8,c:1},{r:8,c:2}],chainContinuation:false});
+  let firstPresent=0;
+  for(let i=1;i<=140;i++){g.updateClearEvents();if(g.board[8][0].presented){firstPresent=i;break;}}
+  out.clearFirstPresent107=(firstPresent===107);
+
+  const pre=document.createElement('pre');pre.id='test-results';pre.textContent=JSON.stringify(out);document.body.appendChild(pre);
+});
+</script>
+</body>
+</html>
